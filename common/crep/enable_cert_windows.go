@@ -92,7 +92,7 @@ setlocal enabledelayedexpansion
 echo Starting MITM certificate installation...
 
 set "CERT_PATH=%s"
-set "CERT_NAME=Yaklang MITM CA"
+set "CERT_NAME=MITM Root CA"
 
 REM Check if certificate file exists
 if not exist "%%CERT_PATH%%" (
@@ -150,7 +150,7 @@ setlocal enabledelayedexpansion
 
 echo Starting MITM certificate removal...
 
-set "CERT_NAME=Yaklang MITM CA"
+set "CERT_NAME=MITM Root CA"
 set "FOUND=0"
 
 REM Check and remove from user Root store

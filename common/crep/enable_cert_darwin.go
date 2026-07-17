@@ -93,7 +93,7 @@ func WithdrawMITMRootCertFromSystem() error {
 // buildMacOSInstallCertScript 构建 macOS 证书安装脚本
 // 使用 security 命令行工具来操作钥匙串
 func buildMacOSInstallCertScript(certPath string) string {
-	const certName = "Yakit MITM Root CA"
+	const certName = "MITM Root CA"
 
 	script := fmt.Sprintf(`#!/bin/zsh
 # MITM Root Certificate Installation Script for macOS
@@ -139,7 +139,7 @@ fi
 
 // buildMacOSRemoveCertScript 构建 macOS 证书移除脚本
 func buildMacOSRemoveCertScript() string {
-	const certName = "Yakit MITM Root CA"
+	const certName = "MITM Root CA"
 
 	script := fmt.Sprintf(`#!/bin/zsh
 # MITM Root Certificate Removal Script for macOS

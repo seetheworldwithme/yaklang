@@ -42,6 +42,8 @@ var (
 	defaultGMCA, defaultGMKey         []byte
 )
 
+const legacyMITMRootCAName = "Yakit MITM Root CA"
+
 func GetDefaultCaFilePath() string {
 	return defaultCAFile
 }
@@ -144,7 +146,16 @@ func InitMITMCert() {
 	defaultGMKey, _ = ioutil.ReadFile(defaultGMKeyFile)
 
 	if defaultCA != nil && defaultKey != nil {
-		log.Debug("Successfully load cert and key from default files")
+		cert, err := tlsutils.ParsePEMCertificate(defaultCA)
+		if err == nil && cert.Subject.CommonName == legacyMITMRootCAName {
+			log.Info("legacy Yakit MITM root certificate detected, regenerating it with the current name")
+			_ = os.Remove(defaultCAFile)
+			_ = os.Remove(defaultKeyFile)
+			defaultCA = nil
+			defaultKey = nil
+		} else {
+			log.Debug("Successfully load cert and key from default files")
+		}
 	}
 
 	if defaultGMCA != nil && defaultGMKey != nil {
@@ -181,7 +192,7 @@ func InitMITMCert() {
 
 	if defaultGMCA == nil || defaultGMKey == nil {
 		var err error
-		defaultGMCA, defaultGMKey, err = tlsutils.GenerateGMSelfSignedCertKey("Yakit MITM GM Root CA")
+		defaultGMCA, defaultGMKey, err = tlsutils.GenerateGMSelfSignedCertKey("MITM GM Root CA")
 		if err != nil {
 			log.Errorf("generate GM default ca/key failed: %s", err)
 			return
