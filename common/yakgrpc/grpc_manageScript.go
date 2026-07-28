@@ -810,12 +810,11 @@ func (s *Server) GetYakScriptTagsAndType(ctx context.Context, req *ypb.Empty) (*
 	db := consts.GetGormProfileDatabase()
 	onlineTags := s.QueryYakScriptTagsGroup(db)
 	for _, v := range onlineTags {
-		if v.Total > 1 {
-			tagsAndType.Tag = append(tagsAndType.Tag, &ypb.TagsAndType{
-				Value: v.Value,
-				Total: v.Total,
-			})
-		}
+		// 单个插件独有的标签同样需要展示，否则导入后的本地插件无法按其标签筛选。
+		tagsAndType.Tag = append(tagsAndType.Tag, &ypb.TagsAndType{
+			Value: v.Value,
+			Total: v.Total,
+		})
 	}
 
 	group, _ := yakit.QueryGroupCount(s.GetProfileDatabase(), []string{}, 0)

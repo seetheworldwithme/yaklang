@@ -38,6 +38,30 @@ func TestYakScriptRiskTypeList(t *testing.T) {
 	_, err = client.YakScriptRiskTypeList(context.Background(), &ypb.Empty{})
 }
 
+func TestGetYakScriptTagsAndTypeIncludesSingleUseTags(t *testing.T) {
+	client, err := NewLocalClient()
+	require.NoError(t, err)
+
+	db := consts.GetGormProfileDatabase()
+	scriptName := uuid.NewString()
+	tag := "single-use-tag-" + uuid.NewString()
+	require.NoError(t, yakit.CreateOrUpdateYakScriptByName(db, scriptName, &schema.YakScript{
+		ScriptName: scriptName,
+		Type:       "yak",
+		Content:    "yakit.AutoInitYakit()",
+		Tags:       tag,
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, yakit.DeleteYakScriptByName(db, scriptName))
+	})
+
+	response, err := client.GetYakScriptTagsAndType(context.Background(), &ypb.Empty{})
+	require.NoError(t, err)
+	require.Contains(t, lo.Map(response.Tag, func(item *ypb.TagsAndType, _ int) string {
+		return item.Value
+	}), tag)
+}
+
 func TestImportYakScript(t *testing.T) {
 	test := assert.New(t)
 
