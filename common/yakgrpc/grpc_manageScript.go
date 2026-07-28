@@ -226,8 +226,20 @@ func (s *Server) QueryYakScript(ctx context.Context, req *ypb.QueryYakScriptRequ
 		Total: int64(p.TotalRecord),
 	}
 
+	scriptNames := make([]string, 0, len(data))
 	for _, d := range data {
-		rsp.Data = append(rsp.Data, d.ToGRPCModel())
+		if d != nil && d.ScriptName != "" {
+			scriptNames = append(scriptNames, d.ScriptName)
+		}
+	}
+	groupsByScriptName, err := yakit.GetPluginGroupsByScriptNames(s.GetProfileDatabase(), scriptNames)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range data {
+		model := d.ToGRPCModel()
+		model.Tags = yakit.MergePluginTagsAndGroups(model.Tags, groupsByScriptName[d.ScriptName])
+		rsp.Data = append(rsp.Data, model)
 	}
 	return rsp, nil
 }

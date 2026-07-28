@@ -15,6 +15,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/yaklang/yaklang/common/consts"
 	"github.com/yaklang/yaklang/common/log"
+	"github.com/yaklang/yaklang/common/schema"
 	"github.com/yaklang/yaklang/common/utils"
 	"github.com/yaklang/yaklang/common/yakgrpc/yakit"
 	"github.com/yaklang/yaklang/common/yakgrpc/ypb"
@@ -88,6 +89,69 @@ func TestServerExportsPlugins(t *testing.T) {
 
 	yakit.DeleteYakScriptByName(consts.GetGormProfileDatabase(), name1)
 	yakit.DeleteYakScriptByName(consts.GetGormProfileDatabase(), name2)
+}
+
+func TestServerExportsPlugins_PreservesPocGroups(t *testing.T) {
+	client, _ := NewLocalClient()
+	uid := uuid.NewString()
+	name, clearFunc, err := yakit.CreateAndClearTemporaryYakScript("mitm", "mirrorHTTPFlow() // "+uid, uid)
+	require.NoError(t, err)
+	t.Cleanup(clearFunc)
+
+	db := consts.GetGormProfileDatabase()
+	group := &schema.PluginGroup{
+		YakScriptName: name,
+		Group:         "offline-import-" + uid,
+		IsPocBuiltIn:  true,
+	}
+	group.Hash = group.CalcHash()
+	require.NoError(t, yakit.CreateOrUpdatePluginGroup(db, group.Hash, group))
+	t.Cleanup(func() {
+		db.Unscoped().Where("yak_script_name = ?", name).Delete(&schema.PluginGroup{})
+	})
+
+	stream, err := client.ExportYakScriptStream(context.Background(), &ypb.ExportYakScriptStreamRequest{
+		Filter: &ypb.QueryYakScriptRequest{
+			IncludedScriptNames: []string{name},
+			IsIgnore:            true,
+		},
+		OutputPluginDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	var outputFile string
+	for {
+		message, recvErr := stream.Recv()
+		if recvErr != nil {
+			break
+		}
+		if message.IsMessage {
+			data := gjson.ParseBytes(message.Message).Get("content").Get("data")
+			if pathName := gjson.Parse(data.Str).Get("path").Str; pathName != "" {
+				outputFile = pathName
+			}
+		}
+	}
+	require.FileExists(t, outputFile)
+
+	require.NoError(t, yakit.DeleteYakScriptByName(db, name))
+	require.NoError(t, yakit.DeletePluginGroupByScriptName(db, []string{name}))
+
+	importStream, err := client.ImportYakScriptStream(context.Background(), &ypb.ImportYakScriptStreamRequest{
+		Filename: outputFile,
+	})
+	require.NoError(t, err)
+	for {
+		_, recvErr := importStream.Recv()
+		if recvErr != nil {
+			break
+		}
+	}
+
+	var importedGroup schema.PluginGroup
+	err = db.Where("yak_script_name = ? AND `group` = ?", name, group.Group).First(&importedGroup).Error
+	require.NoError(t, err)
+	require.True(t, importedGroup.IsPocBuiltIn)
 }
 
 func TestServerExportsPlugins_CustomDir(t *testing.T) {

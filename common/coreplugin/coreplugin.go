@@ -9,6 +9,7 @@ import (
 	"github.com/yaklang/yaklang/common/schema"
 	"github.com/yaklang/yaklang/common/utils"
 	"github.com/yaklang/yaklang/common/utils/resources_monitor"
+	"github.com/yaklang/yaklang/common/yak/pluginbundle"
 	"github.com/yaklang/yaklang/common/yak/static_analyzer"
 	"github.com/yaklang/yaklang/common/yak/static_analyzer/information"
 	"github.com/yaklang/yaklang/common/yakgrpc/yakit"
@@ -84,7 +85,7 @@ func registerBuildInPlugin(pluginType string, name string, opt ...pluginOption) 
 		Type:               pluginType,
 		Content:            codes,
 		Help:               config.Help,
-		Author:             "yaklang.io",
+		Author:             "Admin",
 		Params:             "",
 		Tags:               strings.Join(config.Tags, ","),
 		OnlineContributors: strings.Join(config.Author, ","),
@@ -99,6 +100,11 @@ func registerBuildInPlugin(pluginType string, name string, opt ...pluginOption) 
 	}
 	buildInPlugin[name] = plugin
 	OverWriteYakPlugin(plugin.ScriptName, plugin, config.EnableGenerateParam)
+	for _, group := range pluginbundle.NormalizeGroups(plugin, nil, "") {
+		if err := yakit.CreateOrUpdatePluginGroup(consts.GetGormProfileDatabase(), group.Hash, group); err != nil {
+			log.Errorf("save built-in plugin group [%s] failed: %s", plugin.ScriptName, err)
+		}
+	}
 }
 
 var BlackListCorePlugin = []string{
@@ -510,7 +516,7 @@ func syncCorePluginEmbedInternal() error {
 			"allow-custom-multiple-history-mutate",
 		}),
 	)
-	return nil
+	return yakit.EnsurePocBuiltInGroups(consts.GetGormProfileDatabase())
 }
 
 // ForceSyncCorePlugin 强制同步内置 core plugin 到数据库，忽略哈希检查（用于版本更新后修复导入失败等场景）

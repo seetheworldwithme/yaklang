@@ -2,6 +2,8 @@ package yakit
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 
 	"github.com/yaklang/gorm"
 	"github.com/yaklang/yaklang/common/consts"
@@ -9,8 +11,75 @@ import (
 	"github.com/yaklang/yaklang/common/schema"
 	"github.com/yaklang/yaklang/common/utils"
 	"github.com/yaklang/yaklang/common/utils/bizhelper"
+	"github.com/yaklang/yaklang/common/yak/pluginbundle"
 	"github.com/yaklang/yaklang/common/yakgrpc/ypb"
 )
+
+func GetPluginGroupsByScriptNames(db *gorm.DB, scriptNames []string) (map[string][]string, error) {
+	result := make(map[string][]string)
+	if db == nil || len(scriptNames) == 0 {
+		return result, nil
+	}
+
+	var groups []*schema.PluginGroup
+	hiddenGroups := append(pluginbundle.LegacyGenericPocGroups(), pluginbundle.OfflineImportGroup)
+	query := db.Model(&schema.PluginGroup{}).
+		Where("yak_script_name IN (?)", scriptNames).
+		Where("`group` NOT IN (?)", hiddenGroups).
+		Order("yak_script_name asc, `group` asc")
+	if err := query.Find(&groups).Error; err != nil {
+		return nil, utils.Wrap(err, "query plugin groups by script names failed")
+	}
+
+	seen := make(map[string]map[string]struct{})
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		scriptName := strings.TrimSpace(group.YakScriptName)
+		groupName := strings.TrimSpace(group.Group)
+		if scriptName == "" || groupName == "" {
+			continue
+		}
+		if seen[scriptName] == nil {
+			seen[scriptName] = make(map[string]struct{})
+		}
+		if _, ok := seen[scriptName][groupName]; ok {
+			continue
+		}
+		seen[scriptName][groupName] = struct{}{}
+		result[scriptName] = append(result[scriptName], groupName)
+	}
+	return result, nil
+}
+
+func MergePluginTagsAndGroups(rawTags string, groups []string) string {
+	var tags []string
+	normalizedTags := strings.TrimSpace(rawTags)
+	if normalizedTags != "" {
+		if err := json.Unmarshal([]byte(normalizedTags), &tags); err != nil {
+			tags = strings.FieldsFunc(normalizedTags, func(r rune) bool {
+				return r == ',' || r == '，'
+			})
+		}
+	}
+
+	merged := make([]string, 0, len(tags)+len(groups))
+	seen := make(map[string]struct{})
+	for _, value := range append(tags, groups...) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, value)
+	}
+	return strings.Join(merged, ",")
+}
 
 var pocBuiltInGroups = map[string]string{
 	"ThinkPHP":      "thinkphp",
@@ -58,51 +127,112 @@ func init() {
 			if err != nil {
 				return err
 			}
-			var count int
-			allGroups, err := GroupCount(db)
-			for _, g := range allGroups {
-				if g.IsPocBuiltIn {
-					count++
-				}
-			}
-			if count >= len(pocBuiltInGroups)-1 {
-				return nil
-			}
-
-			db = db.Model(&schema.YakScript{})
-			for group, keywords := range pocBuiltInGroups {
-				filterDb := FilterYakScript(db, &ypb.QueryYakScriptRequest{
-					Keyword: keywords,
-				})
-				yakScripts := bizhelper.YieldModel[*schema.YakScript](context.Background(), filterDb)
-				for yakScript := range yakScripts {
-					res, err := GetYakScriptByName(consts.GetGormProfileDatabase(), yakScript.ScriptName)
-					if err != nil {
-						log.Errorf("GetYakScriptByName failed: %s", err)
-						continue
-
-					}
-					if res == nil {
-						continue
-					}
-
-					saveData := &schema.PluginGroup{
-						YakScriptName: yakScript.ScriptName,
-						Group:         group,
-						IsPocBuiltIn:  true,
-					}
-					saveData.Hash = saveData.CalcHash()
-					log.Debugf("Save YakScriptGroup [%v] [%v]", yakScript.ScriptName, group)
-					err = CreateOrUpdatePluginGroup(consts.GetGormProfileDatabase(), saveData.Hash, saveData)
-					if err != nil {
-						log.Errorf("[%v] Save YakScriptGroup [%v] err %s", yakScript.ScriptName, group, err.Error())
-					}
-				}
-			}
-
+			return EnsurePocBuiltInGroups(db)
 		}
 		return nil
 	})
+}
+
+func EnsurePocBuiltInGroups(db *gorm.DB) error {
+	if db == nil {
+		return utils.Error("empty database")
+	}
+	if err := db.Model(&schema.PluginGroup{}).
+		Where("`group` IN (?)", pluginbundle.LegacyGenericPocGroups()).
+		Unscoped().Delete(&schema.PluginGroup{}).Error; err != nil {
+		return utils.Wrap(err, "delete legacy generic POC groups failed")
+	}
+	if err := migrateOfflineImportGroupsFromTags(db); err != nil {
+		return err
+	}
+	bundledNames := pluginbundle.BundledPocScriptNames()
+	if err := db.Model(&schema.PluginGroup{}).
+		Where("yak_script_name IN (?) AND is_poc_built_in = ?", bundledNames, true).
+		Unscoped().Delete(&schema.PluginGroup{}).Error; err != nil {
+		return utils.Wrap(err, "delete stale bundled POC groups failed")
+	}
+	for _, scriptName := range bundledNames {
+		var count int
+		if err := db.Model(&schema.YakScript{}).Where("script_name = ?", scriptName).Count(&count).Error; err != nil {
+			return utils.Wrapf(err, "check bundled POC [%s] failed", scriptName)
+		}
+		if count == 0 {
+			continue
+		}
+		for _, group := range pluginbundle.BundledPocGroups(scriptName) {
+			saveData := &schema.PluginGroup{YakScriptName: scriptName, Group: group.Name, IsPocBuiltIn: true}
+			saveData.Hash = saveData.CalcHash()
+			if err := CreateOrUpdatePluginGroup(db, saveData.Hash, saveData); err != nil {
+				return utils.Wrapf(err, "save bundled YakScriptGroup [%s] [%s] failed", scriptName, group.Name)
+			}
+		}
+	}
+	scriptDB := db.Model(&schema.YakScript{})
+	for group, keywords := range pocBuiltInGroups {
+		filterDB := FilterYakScript(scriptDB, &ypb.QueryYakScriptRequest{Keyword: keywords})
+		yakScripts := bizhelper.YieldModel[*schema.YakScript](context.Background(), filterDB)
+		for yakScript := range yakScripts {
+			if yakScript == nil || yakScript.ScriptName == "" || pluginbundle.IsBundledPoc(yakScript.ScriptName) {
+				continue
+			}
+			saveData := &schema.PluginGroup{
+				YakScriptName: yakScript.ScriptName,
+				Group:         group,
+				IsPocBuiltIn:  true,
+			}
+			saveData.Hash = saveData.CalcHash()
+			if err := CreateOrUpdatePluginGroup(db, saveData.Hash, saveData); err != nil {
+				return utils.Wrapf(err, "save YakScriptGroup [%s] [%s] failed", yakScript.ScriptName, group)
+			}
+		}
+	}
+	return nil
+}
+
+func migrateOfflineImportGroupsFromTags(db *gorm.DB) error {
+	var offlineGroups []*schema.PluginGroup
+	if err := db.Model(&schema.PluginGroup{}).
+		Where("`group` = ?", pluginbundle.OfflineImportGroup).
+		Find(&offlineGroups).Error; err != nil {
+		return utils.Wrap(err, "query offline import groups failed")
+	}
+
+	for _, offlineGroup := range offlineGroups {
+		if offlineGroup == nil || offlineGroup.YakScriptName == "" {
+			continue
+		}
+		var script schema.YakScript
+		if err := db.Where("script_name = ?", offlineGroup.YakScriptName).First(&script).Error; err != nil {
+			if gorm.IsRecordNotFoundError(err) {
+				continue
+			}
+			return utils.Wrapf(err, "query offline plugin [%s] failed", offlineGroup.YakScriptName)
+		}
+		if !pluginbundle.IsPocPluginType(script.Type) {
+			continue
+		}
+		tagGroups := pluginbundle.GroupsFromTags(script.Tags)
+		if len(tagGroups) == 0 {
+			continue
+		}
+		for _, group := range tagGroups {
+			saveData := &schema.PluginGroup{
+				YakScriptName: script.ScriptName,
+				Group:         group.Name,
+				IsPocBuiltIn:  true,
+			}
+			saveData.Hash = saveData.CalcHash()
+			if err := CreateOrUpdatePluginGroup(db, saveData.Hash, saveData); err != nil {
+				return utils.Wrapf(err, "migrate offline plugin group [%s] [%s] failed", script.ScriptName, group.Name)
+			}
+		}
+		if err := db.Model(&schema.PluginGroup{}).
+			Where("id = ?", offlineGroup.ID).
+			Unscoped().Delete(&schema.PluginGroup{}).Error; err != nil {
+			return utils.Wrapf(err, "delete offline import group [%s] failed", script.ScriptName)
+		}
+	}
+	return nil
 }
 
 func CreateOrUpdatePluginGroup(db *gorm.DB, hash string, i interface{}) error {
@@ -191,6 +321,7 @@ func DeletePluginGroupByScriptName(db *gorm.DB, scriptName []string) error {
 func QueryGroupCount(db *gorm.DB, excludeType []string, isMITMParamPlugins int64) (req []*TagAndTypeValue, err error) {
 	db = db.Model(&schema.PluginGroup{}).Select(" `group` as value, COUNT(Y.script_name) as count, `temporary_id` as temporary_id, `is_poc_built_in` as is_poc_built_in")
 	db = db.Joins("LEFT JOIN yak_scripts Y on Y.script_name = plugin_groups.yak_script_name ")
+	db = db.Where("plugin_groups.`group` NOT IN (?)", pluginbundle.LegacyGenericPocGroups())
 	db = bizhelper.ExactQueryExcludeStringArrayOr(db, "Y.type", excludeType)
 	switch isMITMParamPlugins {
 	case 1:

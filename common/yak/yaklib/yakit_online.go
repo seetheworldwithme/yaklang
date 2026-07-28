@@ -5,6 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/yaklang/gorm"
 	"github.com/yaklang/yaklang/common/consts"
 	"github.com/yaklang/yaklang/common/go-funk"
@@ -14,14 +21,9 @@ import (
 	"github.com/yaklang/yaklang/common/utils"
 	"github.com/yaklang/yaklang/common/utils/lowhttp"
 	"github.com/yaklang/yaklang/common/utils/lowhttp/poc"
+	"github.com/yaklang/yaklang/common/yak/pluginbundle"
 	"github.com/yaklang/yaklang/common/yakgrpc/yakit"
 	"github.com/yaklang/yaklang/common/yakgrpc/ypb"
-	"io/ioutil"
-	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type QueryOnlinePluginRequest struct {
@@ -418,6 +420,7 @@ func (s *OnlineClient) Save(db *gorm.DB, plugins ...*OnlinePlugin) error {
 		return utils.Error("empty database")
 	}
 
+	groupsByScriptName := make(map[string][]*schema.PluginGroup, len(plugins))
 	scripts := funk.Map(plugins, func(i *OnlinePlugin) *schema.YakScript {
 		var params []*ypb.YakScriptParam
 		for _, paramInstance := range i.Params {
@@ -460,18 +463,6 @@ func (s *OnlineClient) Save(db *gorm.DB, plugins ...*OnlinePlugin) error {
 			onlineGroup = utils.RemoveRepeatStringSlice(onlineGroup)
 		} else {
 			onlineGroup = utils.RemoveRepeatStringSlice(utils.PrettifyListFromStringSplited(i.Group, ","))
-		}
-		// 更新组
-		for _, group := range onlineGroup {
-			saveData := &schema.PluginGroup{
-				YakScriptName: i.ScriptName,
-				Group:         group,
-			}
-			saveData.Hash = saveData.CalcHash()
-			err := yakit.CreateOrUpdatePluginGroup(db, saveData.Hash, saveData)
-			if err != nil {
-				log.Errorf("[%v] Save YakScriptGroup [%v] err %s", i.ScriptName, group, err.Error())
-			}
 		}
 		getMarshalRaw := func(i interface{}) string {
 			if funk.IsEmpty(i) {
@@ -540,24 +531,27 @@ func (s *OnlineClient) Save(db *gorm.DB, plugins ...*OnlinePlugin) error {
 			y.Author = strings.Join([]string{y.Author, y.OnlineContributors}, ",")
 			y.Author = strings.Join(utils.RemoveRepeatStringSlice(utils.PrettifyListFromStringSplited(y.Author, ",")), ",")
 		}
+		groupMetadata := make([]pluginbundle.Group, 0, len(onlineGroup))
+		for _, group := range onlineGroup {
+			groupMetadata = append(groupMetadata, pluginbundle.Group{Name: group})
+		}
+		groupsByScriptName[y.ScriptName] = pluginbundle.NormalizeGroups(y, groupMetadata, "")
 		return y
 	}).([]*schema.YakScript)
-	if len(scripts) < 0 {
+	if len(scripts) == 0 {
 		return utils.Error("empty plugins...")
-	}
-
-	if len(scripts) == 1 {
-		err := yakit.CreateOrSkipUpdateYakScriptByName(db, scripts[0].ScriptName, scripts[0])
-		if err != nil {
-			log.Errorf("save [%s] to local failed: %s", scripts[0].ScriptName, err)
-			return err
-		}
 	}
 
 	for _, i := range scripts {
 		err := yakit.CreateOrSkipUpdateYakScriptByName(db, i.ScriptName, i)
 		if err != nil {
 			log.Errorf("save [%s] to local failed: %s", i.ScriptName, err)
+			return err
+		}
+		for _, group := range groupsByScriptName[i.ScriptName] {
+			if err := yakit.CreateOrUpdatePluginGroup(db, group.Hash, group); err != nil {
+				return utils.Wrapf(err, "save [%s] group [%s] to local failed", i.ScriptName, group.Group)
+			}
 		}
 	}
 	return nil

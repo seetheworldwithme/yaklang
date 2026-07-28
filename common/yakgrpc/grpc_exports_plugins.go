@@ -4,19 +4,20 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
 	"github.com/google/uuid"
 	"github.com/yaklang/yaklang/common/consts"
 	"github.com/yaklang/yaklang/common/log"
 	"github.com/yaklang/yaklang/common/schema"
 	"github.com/yaklang/yaklang/common/utils"
+	"github.com/yaklang/yaklang/common/yak/pluginbundle"
 	"github.com/yaklang/yaklang/common/yak/yaklib"
 	"github.com/yaklang/yaklang/common/yak/yaklib/codec"
 	"github.com/yaklang/yaklang/common/yakgrpc/yakit"
 	"github.com/yaklang/yaklang/common/yakgrpc/ypb"
-	"io"
-	"os"
-	"path/filepath"
 )
 
 func (s *Server) ImportYakScriptStream(
@@ -62,7 +63,7 @@ func (s *Server) ImportYakScriptStream(
 	if err != nil {
 		return utils.Wrap(err, "open meta.json failed")
 	}
-	var results = make([]map[string]interface{}, 0, 0)
+	var results []pluginbundle.Metadata
 	if err := json.NewDecoder(metaReader).Decode(&results); err != nil {
 		return utils.Wrap(err, "decode meta.json failed")
 	}
@@ -71,28 +72,58 @@ func (s *Server) ImportYakScriptStream(
 	client := yaklib.NewVirtualYakitClient(stream.Send)
 	_ = client
 
-	for _, r := range results {
-		name, ok := r["filename"]
-		if !ok {
+	db := consts.GetGormProfileDatabase()
+	tx := db.Begin()
+	if tx.Error != nil {
+		return utils.Wrap(tx.Error, "begin import yakit plugin transaction failed")
+	}
+	defer tx.Rollback()
+
+	for _, metadata := range results {
+		if metadata.Filename == "" {
 			continue
 		}
-		fp, err := zipReader.Open(fmt.Sprint(name))
+		fp, err := zipReader.Open(metadata.Filename)
 		if err != nil {
-			return utils.Wrapf(err, "open file failed: %v", name)
+			return utils.Wrapf(err, "open file failed: %v", metadata.Filename)
 		}
 		raw, _ := io.ReadAll(fp)
 		fp.Close()
 		var script schema.YakScript
 		if err := json.Unmarshal(raw, &script); err != nil {
-			return utils.Wrapf(err, "unmarshal yakit script failed: %v", name)
+			return utils.Wrapf(err, "unmarshal yakit script failed: %v", metadata.Filename)
 		}
 		if script.ScriptName == "" {
-			log.Warnf("yakit script name is empty: %v", name)
+			log.Warnf("yakit script name is empty: %v", metadata.Filename)
+			continue
 		}
-		err = yakit.CreateOrUpdateYakScriptByName(consts.GetGormProfileDatabase(), script.ScriptName, &script)
+
+		var sourceGroups []pluginbundle.Group
+		if metadata.Groups == nil {
+			var existingGroups []*schema.PluginGroup
+			if query := tx.Where("yak_script_name = ?", script.ScriptName).Find(&existingGroups); query.Error != nil {
+				return utils.Wrapf(query.Error, "query existing plugin groups failed: %v", script.ScriptName)
+			}
+			sourceGroups = pluginbundle.FromSchema(existingGroups)
+		} else {
+			sourceGroups = *metadata.Groups
+			if err := yakit.DeletePluginGroupByScriptName(tx, []string{script.ScriptName}); err != nil {
+				return utils.Wrapf(err, "delete old plugin groups failed: %v", script.ScriptName)
+			}
+		}
+
+		err = yakit.CreateOrUpdateYakScriptByName(tx, script.ScriptName, &script)
 		if err != nil {
-			log.Warnf("create or update yakit script failed: %v", script.ScriptName)
+			return utils.Wrapf(err, "create or update yakit script failed: %v", script.ScriptName)
 		}
+		for _, group := range pluginbundle.NormalizeGroups(&script, sourceGroups, pluginbundle.OfflineImportGroup) {
+			if err := yakit.CreateOrUpdatePluginGroup(tx, group.Hash, group); err != nil {
+				return utils.Wrapf(err, "create or update yakit plugin group failed: %v", script.ScriptName)
+			}
+		}
+	}
+	if err := tx.Commit().Error; err != nil {
+		return utils.Wrap(err, "commit import yakit plugin transaction failed")
 	}
 	return nil
 }
@@ -130,7 +161,7 @@ func (s *Server) ExportYakScriptStream(
 	step := 0.8 / float64(total)
 	var buf bytes.Buffer
 	zipWriter := zip.NewWriter(&buf)
-	var output = make([]map[string]interface{}, 0, 64)
+	var output = make([]pluginbundle.Metadata, 0, 64)
 	for script := range yakit.YieldYakScripts(db, stream.Context()) {
 		select {
 		case <-stream.Context().Done():
@@ -158,9 +189,15 @@ func (s *Server) ExportYakScriptStream(
 			log.Warnf("flush yakit script failed: %v", script.ScriptName)
 			return err
 		}
-		output = append(output, map[string]any{
-			"filename":    filename,
-			"script_name": script.ScriptName,
+		var storedGroups []*schema.PluginGroup
+		if query := consts.GetGormProfileDatabase().Where("yak_script_name = ?", script.ScriptName).Find(&storedGroups); query.Error != nil {
+			return utils.Wrapf(query.Error, "query yakit plugin groups failed: %v", script.ScriptName)
+		}
+		groups := pluginbundle.FromSchema(storedGroups)
+		output = append(output, pluginbundle.Metadata{
+			Filename:   filename,
+			ScriptName: script.ScriptName,
+			Groups:     &groups,
 		})
 		client.YakitSetProgress(step + 0.1)
 	}
