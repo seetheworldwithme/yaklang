@@ -7,9 +7,16 @@
 * 探查数据：
   {"@action": "require_tool", "tool_require_payload": "read_excel_info", "human_readable_thought": "探查列名与行数"}
 
-* 写入脚本并执行：
-  {"@action": "require_tool", "tool_require_payload": "write_file", "human_readable_thought": "写入 ./step1.py"}
-  {"@action": "require_tool", "tool_require_payload": "bash", "human_readable_thought": "python3 ./step1.py"}
+* 通过 excelcli 执行分析（写入 SQL 文件后执行）：
+  {"@action": "require_tool", "tool_require_payload": "write_file", "human_readable_thought": "写入 ./analysis.sql"}
+  {"@action": "require_tool", "tool_require_payload": "bash", "human_readable_thought": "excelcli query case001.db --file ./analysis.sql --json"}
+
+* 通过 excelcli 直接执行 SQL 查询：
+  {"@action": "require_tool", "tool_require_payload": "bash", "human_readable_thought": "excelcli import 交易流水.xlsx --case-id case001 --db case001.db"}
+  {"@action": "require_tool", "tool_require_payload": "bash", "human_readable_thought": "excelcli inspect case001.db --json --sample 5"}
+  {"@action": "require_tool", "tool_require_payload": "bash", "human_readable_thought": "excelcli map case001.db --out mapping.json"}
+  {"@action": "require_tool", "tool_require_payload": "bash", "human_readable_thought": "excelcli normalize case001.db --mapping mapping.json"}
+  {"@action": "require_tool", "tool_require_payload": "bash", "human_readable_thought": "excelcli analyze fund case001.db"}
 
 * 记录进度（务必带 skill_name；fund-analysis 用 A–D）：
   {"@action": "fund_analysis_progress", "skill_name": "anti-money-analysis", "phase": "stage1", "summary": "完成账户分类与初筛", "human_readable_thought": "记录当前技能阶段"}

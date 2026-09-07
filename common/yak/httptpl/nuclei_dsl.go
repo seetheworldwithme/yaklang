@@ -444,10 +444,10 @@ var nucleiDSLFunctions = map[string]interface{}{
 			min, max = max, min
 		default:
 			min = 0
-			max = math.MaxInt64
+			max = math.MaxInt
 		}
 		if max == 0 {
-			max = math.MaxInt64
+			max = math.MaxInt
 		}
 		return min + rand.Intn(max-min)
 	},

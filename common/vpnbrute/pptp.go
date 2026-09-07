@@ -225,8 +225,8 @@ func (pptp *PPTPAuthItem) GetSetLinkInfo() map[string]any {
 		"Set Link Info": map[string]any{
 			"PeerCallId": pptp.cfg.PeerCallId,
 			"Reserved":   0,
-			"Send Accm":  0xffffffff,
-			"Recv Accm":  0xffffffff,
+			"Send Accm":  uint(0xffffffff),
+			"Recv Accm":  uint(0xffffffff),
 		},
 	}
 }
