@@ -46,6 +46,10 @@ func init() {
 				"find_files",
 				"grep_text",
 				"bash",
+				"read_excel_info",
+				"query_excel_data",
+				"read_csv_info",
+				"query_csv_data",
 			}
 			allowed := append(append([]string{}, metaActions...), toolActions...)
 			if r.GetConfig().GetAllowUserInteraction() {
