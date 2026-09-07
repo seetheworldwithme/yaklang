@@ -1,0 +1,20 @@
+<|REACTIVE_JEC_{{ .Nonce }}|>
+
+**nonce**={{ .Nonce }}
+
+**建议技能（启发式）**: {{ if .SuggestedSkills }}{{ .SuggestedSkills }}{{ else }}（未推断，请根据用户指令自选 skill_name）{{ end }}
+**已加载技能记录**: {{ if .LoadedSkills }}{{ .LoadedSkills }}{{ else }}（尚未记录 fund_analysis_progress）{{ end }}
+
+phase=`{{ .CurrentPhase }}` | files=`{{ .DataFiles }}`
+fund-analysis 阶段旗标: a={{ .PhaseADone }} b={{ .PhaseBDone }} c={{ .PhaseCDone }} d={{ .PhaseDDone }} | findings={{ .FindingsCount }}
+
+### 技能路由表（摘要）
+
+{{ .SkillCatalogSummary }}
+
+{{ if .ProgressLog }}### progress_log
+{{ .ProgressLog }}{{ end }}
+{{ if .FeedbackMessages }}### feedback
+{{ .FeedbackMessages }}
+{{ end }}
+<|REACTIVE_JEC_END_{{ .Nonce }}|>

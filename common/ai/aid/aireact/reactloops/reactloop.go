@@ -80,6 +80,11 @@ type ReActLoop struct {
 	allowSkillViewOffset func() bool
 	actionFilters        []func(action *LoopAction) bool
 
+	// disableDirectlyCallTool removes directly_call_tool from schema and replaces the
+	// CACHE_TOOL routing hint so loops that rely on large tool params (e.g. write_file)
+	// avoid a redundant fast-path stream + automatic fallback to require_tool.
+	disableDirectlyCallTool bool
+
 	toolsGetter         func() []*aitool.Tool
 	loopPromptGenerator ReActLoopCoreGenerateCode
 

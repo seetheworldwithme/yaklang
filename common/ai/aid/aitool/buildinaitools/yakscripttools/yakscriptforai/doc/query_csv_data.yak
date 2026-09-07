@@ -1,0 +1,445 @@
+__DESC__ = "CSV/TSV data query tool for SIMPLE one-off lookups: column selection, row filtering, sorting, row range, and basic aggregation. Each call re-reads the file. For multi-step analysis requiring 2+ queries, strongly prefer writing a Python pandas script via bash tool."
+__VERBOSE_NAME__ = "CSV Data Query"
+__KEYWORDS__ = "csv query,tsv query,data filter,sort,aggregate,sum,count,avg,column select,pagination,csv search,transaction analysis,financial data,bank statement,csv read,csv data"
+
+__USAGE__ = <<<USAGE_BLOCK
+CSV Data Query Tool - Parameter Description for JSON Tool Calls
+
+Queries CSV/TSV data with column selection, row filtering, sorting, and pagination.
+Use read_csv_info first to understand the data schema.
+
+## CRITICAL: Performance & Tool Selection Guide
+
+Each call re-reads the entire CSV file.
+For multi-step analysis (3+ queries on the same file), use Python pandas via bash tool.
+
+Required Parameters:
+  input           (string)  Path to the CSV or TSV file.
+
+Optional Parameters:
+  delimiter       (string)  Column delimiter. Auto-detected if omitted.
+  encoding        (string)  File encoding hint. Default: auto-detect.
+  columns         (string)  Comma-separated column names to select.
+                            If omitted, all columns are shown.
+  filter          (string)  Filter expression: "column_name operator value".
+                            Operators: =, !=, >, <, >=, <=, contains, startswith.
+                            Examples: "金额 > 10000", "对手户名 contains 张"
+  sort_by         (string)  Column name to sort by.
+  sort_order      (string)  "asc" or "desc". Default: "asc".
+  offset          (int)     Skip first N data rows. Default: 0.
+  limit           (int)     Maximum rows to return. Default: 50. Max: 500.
+  output_format   (string)  Output format: "table" (default), "csv", "json".
+  output          (string)  Output file path. If omitted, results are printed to stdout.
+
+Example:
+
+```json
+{
+  "@action": "call-tool",
+  "tool": "query_csv_data",
+  "identifier": "find_large_transactions",
+  "params": {
+    "input": "/path/to/transactions.csv",
+    "filter": "交易金额 > 50000",
+    "sort_by": "交易金额",
+    "sort_order": "desc",
+    "limit": 20
+  }
+}
+```
+USAGE_BLOCK
+
+yakit.AutoInitYakit()
+
+inputFile := cli.String("input", cli.setRequired(true), cli.setHelp("Path to CSV/TSV file"))
+delimiterArg := cli.String("delimiter", cli.setRequired(false), cli.setDefault(""), cli.setHelp("Column delimiter, auto-detect if empty"))
+encodingArg := cli.String("encoding", cli.setRequired(false), cli.setDefault(""), cli.setHelp("File encoding hint"))
+columnsArg := cli.String("columns", cli.setRequired(false), cli.setDefault(""), cli.setHelp("Comma-separated column names to select"))
+filterArg := cli.String("filter", cli.setRequired(false), cli.setDefault(""), cli.setHelp("Filter expression: column_name operator value"))
+sortByArg := cli.String("sort_by", cli.setRequired(false), cli.setDefault(""), cli.setHelp("Column name to sort by"))
+sortOrderArg := cli.String("sort_order", cli.setRequired(false), cli.setDefault("asc"), cli.setHelp("Sort order: asc or desc"))
+offsetArg := cli.Int("offset", cli.setRequired(false), cli.setDefault(0), cli.setHelp("Skip first N rows"))
+limitArg := cli.Int("limit", cli.setRequired(false), cli.setDefault(50), cli.setHelp("Max rows to return, default 50, max 500"))
+outputFormat := cli.String("output_format", cli.setRequired(false), cli.setDefault("table"), cli.setHelp("Output format: table, csv, json"))
+outputFile := cli.String("output", cli.setRequired(false), cli.setHelp("Output file path"))
+
+cli.check()
+
+if !file.IsExisted(inputFile) {
+    yakit.Error("Input file does not exist: %v", inputFile)
+    return
+}
+
+if limitArg > 500 {
+    limitArg = 500
+}
+if limitArg <= 0 {
+    limitArg = 50
+}
+
+rawBytes, err := file.ReadFile(inputFile)
+if err != nil {
+    yakit.Error("Failed to read file: %v", err)
+    return
+}
+
+content := string(rawBytes)
+if encodingArg != "" {
+    content = codec.DecodeByEncoding(rawBytes, encodingArg)
+}
+
+delimiter := delimiterArg
+if delimiter == "" {
+    firstLine := ""
+    for _, ch := range content {
+        if ch == '\n' || ch == '\r' {
+            break
+        }
+        firstLine = firstLine + string(ch)
+    }
+    tabCount := str.Count(firstLine, "\t")
+    commaCount := str.Count(firstLine, ",")
+    semiCount := str.Count(firstLine, ";")
+    pipeCount := str.Count(firstLine, "|")
+
+    if tabCount > commaCount && tabCount > semiCount && tabCount > pipeCount {
+        delimiter = "\t"
+    } elif semiCount > commaCount && semiCount > pipeCount {
+        delimiter = ";"
+    } elif pipeCount > commaCount {
+        delimiter = "|"
+    } else {
+        delimiter = ","
+    }
+}
+
+lines := str.SplitAfterN(content, "\n", -1)
+var cleanLines
+for _, line := range lines {
+    trimmed := str.TrimRight(line, "\r\n")
+    if str.TrimSpace(trimmed) != "" {
+        cleanLines = append(cleanLines, trimmed)
+    }
+}
+
+if len(cleanLines) < 1 {
+    yakit.Error("File is empty")
+    return
+}
+
+headerLine := cleanLines[0]
+headers := str.SplitN(headerLine, delimiter, -1)
+for i, h := range headers {
+    headers[i] = str.TrimSpace(h)
+    headers[i] = str.Trim(headers[i], "\"'")
+}
+
+headerIndex := make(map[string]int)
+for i, h := range headers {
+    headerIndex[h] = i
+}
+
+colExists = (name) => {
+    for _, h := range headers {
+        if h == name {
+            return true
+        }
+    }
+    return false
+}
+
+var selectedCols
+if columnsArg != "" {
+    parts := str.SplitN(columnsArg, ",", -1)
+    for _, p := range parts {
+        p = str.TrimSpace(p)
+        if colExists(p) {
+            selectedCols = append(selectedCols, p)
+        } else {
+            yakit.Info("Warning: column '%v' not found, skipping", p)
+        }
+    }
+} else {
+    selectedCols = headers
+}
+
+if len(selectedCols) == 0 {
+    yakit.Error("No valid columns selected. Available columns: %v", str.Join(headers, ", "))
+    return
+}
+
+parseRow = (line) => {
+    fields := str.SplitN(line, delimiter, -1)
+    var row
+    for _, f := range fields {
+        f = str.TrimSpace(f)
+        f = str.Trim(f, "\"'")
+        row = append(row, f)
+    }
+    return row
+}
+
+getField = (row, colName) => {
+    if !colExists(colName) {
+        return ""
+    }
+    idx := headerIndex[colName]
+    if idx >= len(row) {
+        return ""
+    }
+    return row[idx]
+}
+
+parseNumber = (s) => {
+    s = str.ReplaceAll(s, ",", "")
+    s = str.ReplaceAll(s, "¥", "")
+    s = str.ReplaceAll(s, "$", "")
+    s = str.TrimSpace(s)
+    return atof(s)
+}
+
+var allRows
+for i := 1; i < len(cleanLines); i++ {
+    row := parseRow(cleanLines[i])
+    allRows = append(allRows, row)
+}
+
+yakit.Info("Loaded %v rows, %v columns", len(allRows), len(headers))
+
+var filteredRows
+if filterArg != "" {
+    operators := ["contains", "startswith", "!=", ">=", "<=", ">", "<", "="]
+    filterCol := ""
+    filterOp := ""
+    filterVal := ""
+    for _, op := range operators {
+        idx := str.Index(filterArg, " " + op + " ")
+        if idx >= 0 {
+            filterCol = str.TrimSpace(filterArg[:idx])
+            filterVal = str.TrimSpace(filterArg[idx + len(op) + 2:])
+            filterOp = op
+            break
+        }
+    }
+    if filterOp == "" {
+        yakit.Error("Cannot parse filter expression: %v", filterArg)
+        yakit.Info("Format: column_name operator value")
+        yakit.Info("Operators: =, !=, >, <, >=, <=, contains, startswith")
+        return
+    }
+    if !colExists(filterCol) {
+        yakit.Error("Filter column '%v' not found. Available: %v", filterCol, str.Join(headers, ", "))
+        return
+    }
+
+    for _, row := range allRows {
+        cellVal := getField(row, filterCol)
+        match := false
+        if filterOp == "=" {
+            match = cellVal == filterVal
+        } elif filterOp == "!=" {
+            match = cellVal != filterVal
+        } elif filterOp == "contains" {
+            match = str.Contains(cellVal, filterVal)
+        } elif filterOp == "startswith" {
+            match = str.HasPrefix(cellVal, filterVal)
+        } elif filterOp == ">" || filterOp == ">=" || filterOp == "<" || filterOp == "<=" {
+            numCell := parseNumber(cellVal)
+            numFilter := parseNumber(filterVal)
+            if filterOp == ">" {
+                match = numCell > numFilter
+            } elif filterOp == ">=" {
+                match = numCell >= numFilter
+            } elif filterOp == "<" {
+                match = numCell < numFilter
+            } elif filterOp == "<=" {
+                match = numCell <= numFilter
+            }
+        }
+        if match {
+            filteredRows = append(filteredRows, row)
+        }
+    }
+    yakit.Info("Filter '%v': %v/%v rows matched", filterArg, len(filteredRows), len(allRows))
+} else {
+    filteredRows = allRows
+}
+
+if sortByArg != "" {
+    if !colExists(sortByArg) {
+        yakit.Info("Warning: sort column '%v' not found, skipping sort", sortByArg)
+    } else {
+        sortIdx := headerIndex[sortByArg]
+        isNumeric := true
+        for i := 0; i < len(filteredRows) && i < 20; i++ {
+            val := ""
+            if sortIdx < len(filteredRows[i]) {
+                val = filteredRows[i][sortIdx]
+            }
+            val = str.ReplaceAll(val, ",", "")
+            val = str.TrimSpace(val)
+            if val != "" && !str.MatchAllOfRegexp(val, `^\-?\d+[\.,]?\d*$`) {
+                isNumeric = false
+                break
+            }
+        }
+
+        if isNumeric {
+            for i := 0; i < len(filteredRows); i++ {
+                for j := i + 1; j < len(filteredRows); j++ {
+                    vi := parseNumber(getField(filteredRows[i], sortByArg))
+                    vj := parseNumber(getField(filteredRows[j], sortByArg))
+                    shouldSwap := false
+                    if sortOrderArg == "desc" {
+                        shouldSwap = vj > vi
+                    } else {
+                        shouldSwap = vj < vi
+                    }
+                    if shouldSwap {
+                        filteredRows[i], filteredRows[j] = filteredRows[j], filteredRows[i]
+                    }
+                }
+            }
+        } else {
+            for i := 0; i < len(filteredRows); i++ {
+                for j := i + 1; j < len(filteredRows); j++ {
+                    vi := getField(filteredRows[i], sortByArg)
+                    vj := getField(filteredRows[j], sortByArg)
+                    shouldSwap := false
+                    if sortOrderArg == "desc" {
+                        shouldSwap = vj > vi
+                    } else {
+                        shouldSwap = vj < vi
+                    }
+                    if shouldSwap {
+                        filteredRows[i], filteredRows[j] = filteredRows[j], filteredRows[i]
+                    }
+                }
+            }
+        }
+    }
+}
+
+totalMatched := len(filteredRows)
+
+if offsetArg > 0 {
+    if offsetArg >= len(filteredRows) {
+        filteredRows = []
+    } else {
+        filteredRows = filteredRows[offsetArg:]
+    }
+}
+
+if len(filteredRows) > limitArg {
+    filteredRows = filteredRows[:limitArg]
+}
+
+padRight = (s, width) => {
+    s = sprint(s)
+    for len(s) < width {
+        s = s + " "
+    }
+    return s
+}
+
+var resultBuf
+resultBuf = ""
+
+appendLine = (line) => {
+    resultBuf = resultBuf + line + "\n"
+}
+
+if outputFormat == "json" {
+    appendLine("[")
+    for rowIdx, row := range filteredRows {
+        appendLine("  {")
+        for colIdx, colName := range selectedCols {
+            val := getField(row, colName)
+            val = str.ReplaceAll(val, "\"", "\\\"")
+            comma := ","
+            if colIdx == len(selectedCols) - 1 {
+                comma = ""
+            }
+            appendLine(sprintf("    \"%v\": \"%v\"%v", colName, val, comma))
+        }
+        rowComma := ","
+        if rowIdx == len(filteredRows) - 1 {
+            rowComma = ""
+        }
+        appendLine(sprintf("  }%v", rowComma))
+    }
+    appendLine("]")
+} elif outputFormat == "csv" {
+    appendLine(str.Join(selectedCols, ","))
+    for _, row := range filteredRows {
+        var vals
+        for _, colName := range selectedCols {
+            v := getField(row, colName)
+            if str.Contains(v, ",") || str.Contains(v, "\"") || str.Contains(v, "\n") {
+                v = "\"" + str.ReplaceAll(v, "\"", "\"\"") + "\""
+            }
+            vals = append(vals, v)
+        }
+        appendLine(str.Join(vals, ","))
+    }
+} else {
+    colWidths := make(map[string]int)
+    for _, colName := range selectedCols {
+        w := len(colName)
+        if w < 6 {
+            w = 6
+        }
+        if w > 30 {
+            w = 30
+        }
+        colWidths[colName] = w
+    }
+
+    headerOut := "| "
+    sepOut := "| "
+    for _, colName := range selectedCols {
+        w := colWidths[colName]
+        displayH := colName
+        if len(displayH) > w {
+            displayH = displayH[:w-3] + "..."
+        }
+        headerOut = headerOut + padRight(displayH, w) + " | "
+        sepOut = sepOut + str.Repeat("-", w) + " | "
+    }
+    appendLine(headerOut)
+    appendLine(sepOut)
+
+    for _, row := range filteredRows {
+        rowLine := "| "
+        for _, colName := range selectedCols {
+            w := colWidths[colName]
+            cellVal := getField(row, colName)
+            cellVal = str.ReplaceAll(cellVal, "\n", " ")
+            if len(cellVal) > w {
+                cellVal = cellVal[:w-3] + "..."
+            }
+            rowLine = rowLine + padRight(cellVal, w) + " | "
+        }
+        appendLine(rowLine)
+    }
+}
+
+appendLine("")
+appendLine(sprintf("Query result: %v rows returned (total matched: %v, offset: %v, limit: %v)", len(filteredRows), totalMatched, offsetArg, limitArg))
+
+if outputFile != "" {
+    dir := file.GetDirPath(outputFile)
+    if dir != "" && !file.IsExisted(dir) {
+        file.MkdirAll(dir)
+    }
+    err := file.Save(outputFile, resultBuf)
+    if err != nil {
+        yakit.Error("Failed to save output: %v", err)
+        return
+    }
+    yakit.Info("Query results saved to: %v", outputFile)
+} else {
+    yakit.Info(resultBuf)
+}
+
+yakit.Info("CSV query completed: %v rows returned", len(filteredRows))

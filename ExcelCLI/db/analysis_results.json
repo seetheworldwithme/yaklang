@@ -1,0 +1,695 @@
+{
+  "total_summary": {
+    "total": 4888,
+    "total_amt": 320180350.11,
+    "first_txn": "2014-03-21 10:38:51",
+    "last_txn": "2025-03-21 00:38:02",
+    "subjects": 1
+  },
+  "direction_summary": [
+    {
+      "direction": "in",
+      "cnt": 3720,
+      "amt": 159739193.94,
+      "counterparties": 137
+    },
+    {
+      "direction": "out",
+      "cnt": 1168,
+      "amt": 160441156.17,
+      "counterparties": 175
+    }
+  ],
+  "cash_analysis": [
+    {
+      "channel": "现金交易",
+      "cnt": 3571,
+      "amt": 293661536.11,
+      "cnt_pct": 73.06,
+      "amt_pct": 91.72
+    }
+  ],
+  "yearly_trend": [
+    {
+      "year": "2014",
+      "in_cnt": 513,
+      "in_amt": 17403886.73,
+      "in_cpty": 31,
+      "out_cnt": 129,
+      "out_amt": 16199398.8,
+      "out_cpty": 20
+    },
+    {
+      "year": "2015",
+      "in_cnt": 990,
+      "in_amt": 27623326.29,
+      "in_cpty": 46,
+      "out_cnt": 195,
+      "out_amt": 28145213.4,
+      "out_cpty": 21
+    },
+    {
+      "year": "2016",
+      "in_cnt": 549,
+      "in_amt": 33268260.98,
+      "in_cpty": 34,
+      "out_cnt": 190,
+      "out_amt": 32044823.0,
+      "out_cpty": 17
+    },
+    {
+      "year": "2017",
+      "in_cnt": 404,
+      "in_amt": 29082849.41,
+      "in_cpty": 20,
+      "out_cnt": 184,
+      "out_amt": 29602311.4,
+      "out_cpty": 23
+    },
+    {
+      "year": "2018",
+      "in_cnt": 283,
+      "in_amt": 16573248.78,
+      "in_cpty": 12,
+      "out_cnt": 126,
+      "out_amt": 17045128.0,
+      "out_cpty": 23
+    },
+    {
+      "year": "2019",
+      "in_cnt": 469,
+      "in_amt": 18587723.73,
+      "in_cpty": 26,
+      "out_cnt": 155,
+      "out_amt": 19289232.62,
+      "out_cpty": 66
+    },
+    {
+      "year": "2020",
+      "in_cnt": 254,
+      "in_amt": 7372113.04,
+      "in_cpty": 22,
+      "out_cnt": 68,
+      "out_amt": 7492950.83,
+      "out_cpty": 35
+    },
+    {
+      "year": "2021",
+      "in_cnt": 149,
+      "in_amt": 4772161.52,
+      "in_cpty": 18,
+      "out_cnt": 59,
+      "out_amt": 5464080.0,
+      "out_cpty": 25
+    },
+    {
+      "year": "2022",
+      "in_cnt": 46,
+      "in_amt": 3640763.22,
+      "in_cpty": 15,
+      "out_cnt": 35,
+      "out_amt": 3650843.12,
+      "out_cpty": 13
+    },
+    {
+      "year": "2023",
+      "in_cnt": 45,
+      "in_amt": 533830.36,
+      "in_cpty": 5,
+      "out_cnt": 15,
+      "out_amt": 586232.0,
+      "out_cpty": 7
+    },
+    {
+      "year": "2024",
+      "in_cnt": 17,
+      "in_amt": 881027.33,
+      "in_cpty": 4,
+      "out_cnt": 12,
+      "out_amt": 920943.0,
+      "out_cpty": 6
+    },
+    {
+      "year": "2025",
+      "in_cnt": 1,
+      "in_amt": 2.55,
+      "in_cpty": 1,
+      "out_cnt": 0,
+      "out_amt": 0,
+      "out_cpty": 0
+    }
+  ],
+  "amount_distribution": [
+    {
+      "range": "0-1千",
+      "in_cnt": 100,
+      "out_cnt": 80
+    },
+    {
+      "range": "1千-5千",
+      "in_cnt": 290,
+      "out_cnt": 57
+    },
+    {
+      "range": "5千-1万",
+      "in_cnt": 447,
+      "out_cnt": 74
+    },
+    {
+      "range": "1万-5万",
+      "in_cnt": 1765,
+      "out_cnt": 99
+    },
+    {
+      "range": "5万-10万",
+      "in_cnt": 790,
+      "out_cnt": 178
+    },
+    {
+      "range": "10万-50万",
+      "in_cnt": 287,
+      "out_cnt": 627
+    },
+    {
+      "range": "50万以上",
+      "in_cnt": 41,
+      "out_cnt": 53
+    }
+  ],
+  "balance_summary": {
+    "max_bal": 4056468.06,
+    "min_bal": 0.0,
+    "avg_bal": 864343.0467389525,
+    "last_balance": 10217.77
+  },
+  "daily_avg_txns": 2.62,
+  "top10_sources": [
+    {
+      "counterparty_account": "kh66688",
+      "counterparty_name": "",
+      "cnt": 749,
+      "amt": 38729415.53,
+      "avg_amt": 51708.16492656876
+    },
+    {
+      "counterparty_account": "kh66784",
+      "counterparty_name": "xm734",
+      "cnt": 506,
+      "amt": 18701283.44,
+      "avg_amt": 36959.05818181818
+    },
+    {
+      "counterparty_account": "kh66713",
+      "counterparty_name": "",
+      "cnt": 243,
+      "amt": 18546344.0,
+      "avg_amt": 76322.40329218107
+    },
+    {
+      "counterparty_account": "kh65156",
+      "counterparty_name": "xm1083",
+      "cnt": 49,
+      "amt": 15850843.2,
+      "avg_amt": 323486.5959183673
+    },
+    {
+      "counterparty_account": "kh66770",
+      "counterparty_name": "xm1083",
+      "cnt": 92,
+      "amt": 5554120.0,
+      "avg_amt": 60370.86956521739
+    },
+    {
+      "counterparty_account": "kh66752",
+      "counterparty_name": "xm1083",
+      "cnt": 22,
+      "amt": 5266000.0,
+      "avg_amt": 239363.63636363635
+    },
+    {
+      "counterparty_account": "kh13616",
+      "counterparty_name": "xm1083",
+      "cnt": 9,
+      "amt": 4736793.54,
+      "avg_amt": 526310.3933333333
+    },
+    {
+      "counterparty_account": "kh66824",
+      "counterparty_name": "xm1083",
+      "cnt": 65,
+      "amt": 2920000.0,
+      "avg_amt": 44923.07692307692
+    },
+    {
+      "counterparty_account": "kh66701",
+      "counterparty_name": "",
+      "cnt": 28,
+      "amt": 2273000.0,
+      "avg_amt": 81178.57142857143
+    },
+    {
+      "counterparty_account": "kh66758",
+      "counterparty_name": "xm47625",
+      "cnt": 1,
+      "amt": 2020000.0,
+      "avg_amt": 2020000.0
+    }
+  ],
+  "top10_destinations": [
+    {
+      "counterparty_account": "kh63621",
+      "counterparty_name": "",
+      "cnt": 404,
+      "amt": 61900200.0,
+      "avg_amt": 153218.31683168316
+    },
+    {
+      "counterparty_account": "kh65156",
+      "counterparty_name": "xm1083",
+      "cnt": 66,
+      "amt": 22586500.0,
+      "avg_amt": 342219.69696969696
+    },
+    {
+      "counterparty_account": "kh13616",
+      "counterparty_name": "xm1083",
+      "cnt": 33,
+      "amt": 16286000.0,
+      "avg_amt": 493515.1515151515
+    },
+    {
+      "counterparty_account": "kh66758",
+      "counterparty_name": "xm47625",
+      "cnt": 23,
+      "amt": 9000000.0,
+      "avg_amt": 391304.347826087
+    },
+    {
+      "counterparty_account": "kh64503",
+      "counterparty_name": "xm13581",
+      "cnt": 46,
+      "amt": 6171600.0,
+      "avg_amt": 134165.21739130435
+    },
+    {
+      "counterparty_account": "kh66701",
+      "counterparty_name": "",
+      "cnt": 19,
+      "amt": 3194017.5,
+      "avg_amt": 168106.18421052632
+    },
+    {
+      "counterparty_account": "kh66824",
+      "counterparty_name": "xm1083",
+      "cnt": 17,
+      "amt": 2916000.0,
+      "avg_amt": 171529.41176470587
+    },
+    {
+      "counterparty_account": "kh6336",
+      "counterparty_name": "xm21420",
+      "cnt": 17,
+      "amt": 2104256.0,
+      "avg_amt": 123779.76470588235
+    },
+    {
+      "counterparty_account": "kh15605",
+      "counterparty_name": "xm288",
+      "cnt": 26,
+      "amt": 1739133.0,
+      "avg_amt": 66889.73076923077
+    },
+    {
+      "counterparty_account": "kh66811",
+      "counterparty_name": "xm405",
+      "cnt": 12,
+      "amt": 1414364.0,
+      "avg_amt": 117863.66666666667
+    }
+  ],
+  "source_concentration": {
+    "top1_pct": 0.06,
+    "top3_pct": 0.22,
+    "top5_pct": 0.54
+  },
+  "dest_concentration": {
+    "top1_pct": 0.11,
+    "top3_pct": 2.29,
+    "top5_pct": 3.57
+  },
+  "same_name_sources": [
+    {
+      "counterparty_account": "kh13616",
+      "counterparty_name": "xm1083",
+      "cnt": 9,
+      "amt": 4736793.54
+    },
+    {
+      "counterparty_account": "kh65156",
+      "counterparty_name": "xm1083",
+      "cnt": 49,
+      "amt": 15850843.2
+    },
+    {
+      "counterparty_account": "kh66688",
+      "counterparty_name": "xm1083",
+      "cnt": 698,
+      "amt": 36165915.53
+    },
+    {
+      "counterparty_account": "kh66701",
+      "counterparty_name": "xm1083",
+      "cnt": 22,
+      "amt": 2027000.0
+    },
+    {
+      "counterparty_account": "kh66713",
+      "counterparty_name": "xm1083",
+      "cnt": 232,
+      "amt": 16516344.0
+    },
+    {
+      "counterparty_account": "kh66733",
+      "counterparty_name": "xm1083",
+      "cnt": 3,
+      "amt": 3000.0
+    },
+    {
+      "counterparty_account": "kh66752",
+      "counterparty_name": "xm1083",
+      "cnt": 22,
+      "amt": 5266000.0
+    },
+    {
+      "counterparty_account": "kh66770",
+      "counterparty_name": "xm1083",
+      "cnt": 92,
+      "amt": 5554120.0
+    },
+    {
+      "counterparty_account": "kh66773",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 504550.0
+    },
+    {
+      "counterparty_account": "kh66777",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 30000.0
+    },
+    {
+      "counterparty_account": "kh66780",
+      "counterparty_name": "xm1083",
+      "cnt": 4,
+      "amt": 200000.0
+    },
+    {
+      "counterparty_account": "kh66809",
+      "counterparty_name": "xm1083",
+      "cnt": 26,
+      "amt": 1212000.0
+    },
+    {
+      "counterparty_account": "kh66812",
+      "counterparty_name": "xm1083",
+      "cnt": 11,
+      "amt": 338000.0
+    },
+    {
+      "counterparty_account": "kh66824",
+      "counterparty_name": "xm1083",
+      "cnt": 65,
+      "amt": 2920000.0
+    },
+    {
+      "counterparty_account": "kh66828",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 19000.0
+    },
+    {
+      "counterparty_account": "kh66829",
+      "counterparty_name": "xm1083",
+      "cnt": 21,
+      "amt": 69781.32
+    },
+    {
+      "counterparty_account": "kh66839",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 517993.15
+    },
+    {
+      "counterparty_account": "kh66863",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 301072.5
+    },
+    {
+      "counterparty_account": "kh66870",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 301072.5
+    },
+    {
+      "counterparty_account": "kh66878",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 301113.75
+    },
+    {
+      "counterparty_account": "kh66880",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 301113.75
+    },
+    {
+      "counterparty_account": "kh66886",
+      "counterparty_name": "xm1083",
+      "cnt": 13,
+      "amt": 1043197.8400000001
+    },
+    {
+      "counterparty_account": "kh66893",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 531080.0
+    },
+    {
+      "counterparty_account": "kh66895",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 212180.0
+    },
+    {
+      "counterparty_account": "kh66899",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 559812.5
+    },
+    {
+      "counterparty_account": "kh66900",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 561050.0
+    },
+    {
+      "counterparty_account": "kh66903",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 318270.0
+    },
+    {
+      "counterparty_account": "kh66904",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 318900.0
+    },
+    {
+      "counterparty_account": "kh66905",
+      "counterparty_name": "xm1083",
+      "cnt": 3,
+      "amt": 69340.66
+    }
+  ],
+  "same_name_dests": [
+    {
+      "counterparty_account": "kh13616",
+      "counterparty_name": "xm1083",
+      "cnt": 33,
+      "amt": 16286000.0
+    },
+    {
+      "counterparty_account": "kh65156",
+      "counterparty_name": "xm1083",
+      "cnt": 66,
+      "amt": 22586500.0
+    },
+    {
+      "counterparty_account": "kh66688",
+      "counterparty_name": "xm1083",
+      "cnt": 6,
+      "amt": 28600.0
+    },
+    {
+      "counterparty_account": "kh66701",
+      "counterparty_name": "xm1083",
+      "cnt": 15,
+      "amt": 2700000.0
+    },
+    {
+      "counterparty_account": "kh66711",
+      "counterparty_name": "xm1083",
+      "cnt": 2,
+      "amt": 42000.0
+    },
+    {
+      "counterparty_account": "kh66713",
+      "counterparty_name": "xm1083",
+      "cnt": 7,
+      "amt": 408000.0
+    },
+    {
+      "counterparty_account": "kh66752",
+      "counterparty_name": "xm1083",
+      "cnt": 3,
+      "amt": 82000.0
+    },
+    {
+      "counterparty_account": "kh66770",
+      "counterparty_name": "xm1083",
+      "cnt": 5,
+      "amt": 800500.0
+    },
+    {
+      "counterparty_account": "kh66776",
+      "counterparty_name": "xm1083",
+      "cnt": 2,
+      "amt": 1700.0
+    },
+    {
+      "counterparty_account": "kh66777",
+      "counterparty_name": "xm1083",
+      "cnt": 4,
+      "amt": 110000.0
+    },
+    {
+      "counterparty_account": "kh66812",
+      "counterparty_name": "xm1083",
+      "cnt": 2,
+      "amt": 73000.0
+    },
+    {
+      "counterparty_account": "kh66824",
+      "counterparty_name": "xm1083",
+      "cnt": 17,
+      "amt": 2916000.0
+    },
+    {
+      "counterparty_account": "kh66839",
+      "counterparty_name": "xm1083",
+      "cnt": 1,
+      "amt": 500000.0
+    }
+  ],
+  "two_way_counterparties": [
+    {
+      "counterparty_account": "kh66688",
+      "counterparty_name": "",
+      "in_cnt": 749,
+      "in_amt": 38729415.53,
+      "out_cnt": 7,
+      "out_amt": 29100.0
+    },
+    {
+      "counterparty_account": "kh65156",
+      "counterparty_name": "xm1083",
+      "in_cnt": 49,
+      "in_amt": 15850843.2,
+      "out_cnt": 66,
+      "out_amt": 22586500.0
+    },
+    {
+      "counterparty_account": "kh13616",
+      "counterparty_name": "xm1083",
+      "in_cnt": 9,
+      "in_amt": 4736793.54,
+      "out_cnt": 33,
+      "out_amt": 16286000.0
+    },
+    {
+      "counterparty_account": "kh66713",
+      "counterparty_name": "",
+      "in_cnt": 243,
+      "in_amt": 18546344.0,
+      "out_cnt": 9,
+      "out_amt": 608005.0
+    },
+    {
+      "counterparty_account": "kh66758",
+      "counterparty_name": "xm47625",
+      "in_cnt": 1,
+      "in_amt": 2020000.0,
+      "out_cnt": 23,
+      "out_amt": 9000000.0
+    },
+    {
+      "counterparty_account": "kh66770",
+      "counterparty_name": "xm1083",
+      "in_cnt": 92,
+      "in_amt": 5554120.0,
+      "out_cnt": 5,
+      "out_amt": 800500.0
+    },
+    {
+      "counterparty_account": "kh66824",
+      "counterparty_name": "xm1083",
+      "in_cnt": 65,
+      "in_amt": 2920000.0,
+      "out_cnt": 17,
+      "out_amt": 2916000.0
+    },
+    {
+      "counterparty_account": "kh66701",
+      "counterparty_name": "",
+      "in_cnt": 28,
+      "in_amt": 2273000.0,
+      "out_cnt": 19,
+      "out_amt": 3194017.5
+    },
+    {
+      "counterparty_account": "kh66752",
+      "counterparty_name": "xm1083",
+      "in_cnt": 22,
+      "in_amt": 5266000.0,
+      "out_cnt": 3,
+      "out_amt": 82000.0
+    },
+    {
+      "counterparty_account": "kh66813",
+      "counterparty_name": "xm734",
+      "in_cnt": 12,
+      "in_amt": 1331000.0,
+      "out_cnt": 5,
+      "out_amt": 970000.0
+    }
+  ],
+  "self_transfer": {
+    "cnt": 42,
+    "amt": 21022793.54
+  },
+  "cpty_bank_distribution": [],
+  "round_amount": [
+    {
+      "direction": "in",
+      "cnt": 1750,
+      "amt": 83170000.0
+    },
+    {
+      "direction": "out",
+      "cnt": 460,
+      "amt": 99970000.0
+    }
+  ]
+}

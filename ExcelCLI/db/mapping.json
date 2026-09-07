@@ -1,0 +1,70 @@
+{
+  "profile": "bank-transaction",
+  "tables": [
+    {
+      "raw_table": "kh13616个人交易情况__Sheet1",
+      "table_type": "bank_transaction",
+      "score": 6,
+      "columns": {
+        "account_no": "交易卡号",
+        "account_name": "交易户名",
+        "account_id_no": null,
+        "txn_time": "交易时间",
+        "direction": "收付标志",
+        "amount": "交易金额",
+        "debit_amount": null,
+        "credit_amount": null,
+        "balance": "交易余额",
+        "counterparty_account": "交易对手账卡号",
+        "counterparty_name": "对手户名",
+        "counterparty_id_no": null,
+        "counterparty_bank": "对手开户银行",
+        "summary": "摘要说明",
+        "channel": "现金标志",
+        "location": null,
+        "ip": null,
+        "mac": null,
+        "currency": null,
+        "txn_serial_no": null,
+        "voucher_no": null,
+        "is_success": null
+      },
+      "direction_map": {
+        "in": [
+          "进",
+          "入",
+          "收入",
+          "收",
+          "贷",
+          "贷方",
+          "C",
+          "CR",
+          "转入",
+          "收款"
+        ],
+        "out": [
+          "出",
+          "支出",
+          "付",
+          "借",
+          "借方",
+          "D",
+          "DR",
+          "转出",
+          "付款",
+          "取"
+        ],
+        "fail": [
+          "0",
+          "失败",
+          "交易失败",
+          "FAIL",
+          "F",
+          "N",
+          "否",
+          "false"
+        ]
+      }
+    }
+  ]
+}

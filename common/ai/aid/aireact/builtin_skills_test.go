@@ -23,15 +23,14 @@ var allBuiltinSkills = []struct {
 	keywords []string
 }{
 	{"code-review", "skills/code-review/SKILL.md", []string{"grep", "CWE-89", "CWE-77", "CWE-79"}},
-	{"xss-testing", "skills/xss-testing/SKILL.md", []string{"XSS", "Payload", "CSP"}},
-	{"sql-injection", "skills/sql-injection/SKILL.md", []string{"UNION", "SQL", "Payload"}},
-	{"command-injection", "skills/command-injection/SKILL.md", []string{"CWE-77", "CWE-78", "Payload"}},
-	{"template-injection", "skills/template-injection/SKILL.md", []string{"SSTI", "Jinja2", "Freemarker"}},
-	{"recon-planning", "skills/recon-planning/SKILL.md", []string{"OWASP", "Recon", "Scoping"}},
-	{"web-crawler", "skills/web-crawler/SKILL.md", []string{"URL", "API", "JavaScript"}},
-	{"pentest-task-design", "skills/pentest-task-design/SKILL.md", []string{"scan_port", "do_http_request", "OWASP", "Phase"}},
-	{"how-to-use-browser", "skills/how-to-use-browser/SKILL.md", []string{"snapshot", "click", "fill", "screenshot", "CDP"}},
-	{"authorization-bypass", "skills/authorization-bypass/SKILL.md", []string{"IDOR", "WSTG-ATHZ-02", "Horizontal", "Vertical", "do_http_request"}},
+	{"fund-analysis", "skills/fund-analysis/SKILL.md", []string{"资金", "交易", "可疑", "团伙", "report-template"}},
+	{"tax-fraud-analysis", "skills/tax-fraud-analysis/SKILL.md", []string{"涉税", "发票", "虚开", "增值税"}},
+	{"anti-money-analysis", "skills/anti-money-analysis/SKILL.md", []string{"洗钱", "反洗钱", "地下钱庄"}},
+	{"commercial-bribery-analysis", "skills/commercial-bribery-analysis/SKILL.md", []string{"贿赂", "行贿", "回扣"}},
+	{"fund-tracing-analysis", "skills/fund-tracing-analysis/SKILL.md", []string{"穿透", "资金链", "中转"}},
+	{"trade-analysis", "skills/trade-analysis/SKILL.md", []string{"商贸", "合同诈骗", "职务侵占"}},
+	{"stakeholder-analysis", "skills/stakeholder-analysis/SKILL.md", []string{"传销", "非法集资", "涉众"}},
+	{"anti-counterfeit-analysis", "skills/anti-counterfeit-analysis/SKILL.md", []string{"假币", "资金流", "四流"}},
 }
 
 func useTempBuiltinSkillReleaseDB(t *testing.T) {

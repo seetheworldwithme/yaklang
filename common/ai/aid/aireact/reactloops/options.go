@@ -90,6 +90,18 @@ func WithActionFilter(filter func(action *LoopAction) bool) ReActLoopOption {
 	}
 }
 
+// WithDisableDirectlyCallTool disables the directly_call_tool action and the prompt hint
+// that prefers CACHE_TOOL_CALL fast routing. Use for loops where tools often need large
+// block params (write_file, bash): the fast path streams params then may fall back to
+// require_tool, duplicating UI work.
+func WithDisableDirectlyCallTool(disable ...bool) ReActLoopOption {
+	return func(r *ReActLoop) {
+		if len(disable) == 0 || disable[0] {
+			r.disableDirectlyCallTool = true
+		}
+	}
+}
+
 func WithAllowToolCall(b ...bool) ReActLoopOption {
 	if len(b) > 0 {
 		return WithAllowToolCallGetter(func() bool {

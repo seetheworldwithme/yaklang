@@ -1,0 +1,349 @@
+__DESC__ = "CSV/TSV file structure exploration tool. Reads a CSV or TSV file and outputs detected delimiter, encoding hint, column names with inferred data types, row count, and preview rows. Use this FIRST to understand data layout before analysis. For multi-step analysis (3+ queries), prefer writing a Python pandas script via bash tool."
+__VERBOSE_NAME__ = "CSV Structure Explorer"
+__KEYWORDS__ = "csv,tsv,comma separated,tab separated,data exploration,column names,data types,row count,preview,schema,structure,data analysis,csv info,csv schema,transaction data,financial data,bank statement"
+
+__USAGE__ = <<<USAGE_BLOCK
+CSV Structure Explorer Tool - Parameter Description for JSON Tool Calls
+
+Reads a CSV/TSV file and outputs structured information: detected delimiter,
+column headers, inferred data types, row counts, and preview data.
+Use this tool FIRST before query_csv_data to understand the data layout.
+
+Required Parameters:
+  input           (string)  Path to the CSV or TSV file.
+
+Optional Parameters:
+  delimiter       (string)  Column delimiter. Auto-detected if omitted.
+                            Common values: "," (CSV), "\t" (TSV), "|", ";".
+  encoding        (string)  File encoding hint. Default: auto-detect (UTF-8/GBK/GB18030).
+  preview_rows    (int)     Number of preview rows to display. Default: 5.
+                            Set to 0 to skip preview.
+  output          (string)  Output file path. If omitted, results are printed to stdout.
+
+Example:
+
+```json
+{
+  "@action": "call-tool",
+  "tool": "read_csv_info",
+  "identifier": "explore_bank_statement",
+  "params": {
+    "input": "/path/to/transactions.csv",
+    "preview_rows": 3
+  }
+}
+```
+USAGE_BLOCK
+
+yakit.AutoInitYakit()
+
+inputFile := cli.String("input", cli.setRequired(true), cli.setHelp("Path to CSV/TSV file"))
+delimiterArg := cli.String("delimiter", cli.setRequired(false), cli.setDefault(""), cli.setHelp("Column delimiter, auto-detect if empty"))
+encodingArg := cli.String("encoding", cli.setRequired(false), cli.setDefault(""), cli.setHelp("File encoding hint (utf-8, gbk, gb18030), auto-detect if empty"))
+previewRows := cli.Int("preview_rows", cli.setRequired(false), cli.setDefault(5), cli.setHelp("Number of preview rows to display, default 5"))
+outputFile := cli.String("output", cli.setRequired(false), cli.setHelp("Output file path, omit to print to stdout"))
+
+cli.check()
+
+if !file.IsExisted(inputFile) {
+    yakit.Error("Input file does not exist: %v", inputFile)
+    return
+}
+
+ext := str.ToLower(file.GetExt(inputFile))
+if ext != ".csv" && ext != ".tsv" && ext != ".txt" {
+    yakit.Info("Warning: file extension '%v' is not .csv/.tsv/.txt, proceeding anyway", ext)
+}
+
+yakit.Info("Parsing CSV/TSV file: %v", inputFile)
+
+fileInfo, _ := file.Stat(inputFile)
+fileSize := 0
+if fileInfo != nil {
+    fileSize = fileInfo.Size()
+}
+
+rawBytes, err := file.ReadFile(inputFile)
+if err != nil {
+    yakit.Error("Failed to read file: %v", err)
+    return
+}
+
+content := string(rawBytes)
+
+if encodingArg != "" {
+    content = codec.DecodeByEncoding(rawBytes, encodingArg)
+}
+
+delimiter := delimiterArg
+if delimiter == "" {
+    firstLine := ""
+    for _, ch := range content {
+        if ch == '\n' || ch == '\r' {
+            break
+        }
+        firstLine = firstLine + string(ch)
+    }
+    tabCount := str.Count(firstLine, "\t")
+    commaCount := str.Count(firstLine, ",")
+    semiCount := str.Count(firstLine, ";")
+    pipeCount := str.Count(firstLine, "|")
+
+    if tabCount > commaCount && tabCount > semiCount && tabCount > pipeCount {
+        delimiter = "\t"
+    } elif semiCount > commaCount && semiCount > pipeCount {
+        delimiter = ";"
+    } elif pipeCount > commaCount {
+        delimiter = "|"
+    } else {
+        delimiter = ","
+    }
+}
+
+delimDisplay := delimiter
+if delimiter == "\t" {
+    delimDisplay = "TAB"
+}
+
+lines := str.SplitAfterN(content, "\n", -1)
+var cleanLines
+for _, line := range lines {
+    trimmed := str.TrimRight(line, "\r\n")
+    if str.TrimSpace(trimmed) != "" {
+        cleanLines = append(cleanLines, trimmed)
+    }
+}
+
+if len(cleanLines) == 0 {
+    yakit.Error("File is empty or contains no parseable lines")
+    return
+}
+
+headerLine := cleanLines[0]
+headers := str.SplitN(headerLine, delimiter, -1)
+for i, h := range headers {
+    headers[i] = str.TrimSpace(h)
+    headers[i] = str.Trim(headers[i], "\"'")
+}
+
+totalDataRows := len(cleanLines) - 1
+
+var dataRows
+sampleLimit := 200
+if previewRows > sampleLimit {
+    sampleLimit = previewRows
+}
+for i := 1; i < len(cleanLines) && i <= sampleLimit; i++ {
+    fields := str.SplitN(cleanLines[i], delimiter, -1)
+    var row
+    for _, f := range fields {
+        f = str.TrimSpace(f)
+        f = str.Trim(f, "\"'")
+        row = append(row, f)
+    }
+    dataRows = append(dataRows, row)
+}
+
+inferType = (values) => {
+    if len(values) == 0 {
+        return "unknown"
+    }
+    intCount = 0
+    floatCount = 0
+    dateCount = 0
+    emptyCount = 0
+    for v in values {
+        v = str.TrimSpace(sprint(v))
+        if v == "" || v == "NaN" || v == "nan" {
+            emptyCount++
+            continue
+        }
+        if str.MatchAllOfRegexp(v, `^\-?\d+$`) {
+            intCount++
+            continue
+        }
+        if str.MatchAllOfRegexp(v, `^\-?\d+[\.,]?\d*$`) {
+            floatCount++
+            continue
+        }
+        if str.MatchAllOfRegexp(v, `^\d{4}[\-/]\d{1,2}[\-/]\d{1,2}`) {
+            dateCount++
+            continue
+        }
+    }
+    nonEmpty = len(values) - emptyCount
+    if nonEmpty == 0 {
+        return "empty"
+    }
+    if intCount == nonEmpty {
+        return "integer"
+    }
+    if (intCount + floatCount) == nonEmpty {
+        return "number"
+    }
+    if dateCount == nonEmpty {
+        return "datetime"
+    }
+    if dateCount > 0 && dateCount >= nonEmpty / 2 {
+        return "datetime/text"
+    }
+    return "text"
+}
+
+padRight = (s, width) => {
+    s = sprint(s)
+    for len(s) < width {
+        s = s + " "
+    }
+    return s
+}
+
+var resultBuf
+resultBuf = ""
+
+appendLine = (line) => {
+    resultBuf = resultBuf + line + "\n"
+}
+
+appendLine("=" * 70)
+appendLine(sprintf("CSV File Structure: %v", file.GetBase(inputFile)))
+appendLine(sprintf("File Size: %v bytes (%v KB)", fileSize, fileSize / 1024))
+appendLine(sprintf("Delimiter: %v", delimDisplay))
+appendLine(sprintf("Columns: %v", len(headers)))
+appendLine(sprintf("Data Rows: %v", totalDataRows))
+appendLine("=" * 70)
+
+sampleSize := len(dataRows)
+if sampleSize > 100 {
+    sampleSize = 100
+}
+
+appendLine("")
+appendLine("Column Schema:")
+appendLine(sprintf("  %-4s | %-30s | %-15s | %-10s", "#", "Column Name", "Inferred Type", "Non-Empty"))
+appendLine(sprintf("  %s", str.Repeat("-", 70)))
+
+for colIdx, header := range headers {
+    var sampleValues
+    sampleValues = []
+    nonEmptyCount := 0
+    for rowIdx := 0; rowIdx < sampleSize; rowIdx++ {
+        row := dataRows[rowIdx]
+        cellVal := ""
+        if colIdx < len(row) {
+            cellVal = row[colIdx]
+        }
+        sampleValues = append(sampleValues, cellVal)
+        if str.TrimSpace(cellVal) != "" {
+            nonEmptyCount++
+        }
+    }
+    colType := inferType(sampleValues)
+    nonEmptyPct := "0%"
+    if sampleSize > 0 {
+        nonEmptyPct = sprintf("%v%%", nonEmptyCount * 100 / sampleSize)
+    }
+    displayHeader := header
+    if len(displayHeader) > 30 {
+        displayHeader = displayHeader[:27] + "..."
+    }
+    appendLine(sprintf("  %-4d | %-30s | %-15s | %-10s", colIdx + 1, displayHeader, colType, nonEmptyPct))
+}
+
+if previewRows > 0 && len(dataRows) > 0 {
+    showRows := previewRows
+    if showRows > len(dataRows) {
+        showRows = len(dataRows)
+    }
+    appendLine("")
+    appendLine(sprintf("Preview (first %v rows):", showRows))
+
+    colWidths := make(map[int]int)
+    for colIdx, header := range headers {
+        w := len(header)
+        if w < 6 {
+            w = 6
+        }
+        if w > 25 {
+            w = 25
+        }
+        colWidths[colIdx] = w
+    }
+
+    headerLine := "  | "
+    sepLine := "  | "
+    for colIdx, header := range headers {
+        w := colWidths[colIdx]
+        displayH := header
+        if len(displayH) > w {
+            displayH = displayH[:w-3] + "..."
+        }
+        headerLine = headerLine + padRight(displayH, w) + " | "
+        sepLine = sepLine + str.Repeat("-", w) + " | "
+    }
+    appendLine(headerLine)
+    appendLine(sepLine)
+
+    for rowIdx := 0; rowIdx < showRows; rowIdx++ {
+        row := dataRows[rowIdx]
+        rowLine := "  | "
+        for colIdx := range headers {
+            w := colWidths[colIdx]
+            cellVal := ""
+            if colIdx < len(row) {
+                cellVal = row[colIdx]
+            }
+            cellVal = str.ReplaceAll(cellVal, "\n", " ")
+            if len(cellVal) > w {
+                cellVal = cellVal[:w-3] + "..."
+            }
+            rowLine = rowLine + padRight(cellVal, w) + " | "
+        }
+        appendLine(rowLine)
+    }
+}
+
+appendLine("")
+appendLine("=" * 70)
+
+if outputFile != "" {
+    dir := file.GetDirPath(outputFile)
+    if dir != "" && !file.IsExisted(dir) {
+        file.MkdirAll(dir)
+    }
+    err := file.Save(outputFile, resultBuf)
+    if err != nil {
+        yakit.Error("Failed to save output: %v", err)
+        return
+    }
+    yakit.Info("Structure info saved to: %v", outputFile)
+} else {
+    yakit.Info(resultBuf)
+}
+
+baseName = file.GetBase(inputFile)
+baseName = str.ReplaceAll(baseName, ".csv", "")
+baseName = str.ReplaceAll(baseName, ".tsv", "")
+baseName = str.ReplaceAll(baseName, ".txt", "")
+schemaFile = sprintf("/tmp/%v_csv_schema.txt", baseName)
+file.Save(schemaFile, resultBuf)
+schemaInfo, schemaErr = file.Stat(schemaFile)
+if schemaErr == nil {
+    yakit.File(schemaFile, yakit.fileWriteAction(schemaInfo.Size(), "extract", "csv schema exploration result"))
+    yakit.Info("[SAVED] Schema info saved to %v (%v bytes) for future reference", schemaFile, schemaInfo.Size())
+}
+
+yakit.Info("CSV structure exploration completed")
+
+if totalDataRows > 500 {
+    yakit.Info("[NEXT STEP RECOMMENDATION] This file has %v data rows.", totalDataRows)
+    yakit.Info("  Option A (1-2 simple queries): Use query_csv_data for a single filter or aggregation.")
+    yakit.Info("  Option B (complex analysis, STRONGLY RECOMMENDED): Use bash tool with Python pandas.")
+    yakit.Info("")
+    yakit.Info("  Python quick start:")
+    yakit.Info("    import pandas as pd")
+    yakit.Info("    df = pd.read_csv('%v')", inputFile)
+    yakit.Info("    # For GBK-encoded files: pd.read_csv('%v', encoding='gbk')", inputFile)
+    yakit.Info("")
+    yakit.Info("  Schema reference file: %v", schemaFile)
+}

@@ -47,6 +47,19 @@ func renderRecentToolRoutingHint() string {
 	})
 }
 
+// renderRecentToolRoutingHintRequireToolOnly replaces the fast-path hint when directly_call_tool is disabled for this loop.
+func renderRecentToolRoutingHintRequireToolOnly() string {
+	return utils.MustRenderTemplate(`
+<|DIRECT_TOOL_ROUTING_{{ .Nonce }}|>
+# 工具调用（本循环已关闭快速路径）
+- 一律使用 @action=require_tool 申请工具；不要使用 directly_call_tool。
+- CACHE_TOOL_CALL 仅供参考；含大块参数的工具（write_file、bash 等）请直接 require_tool，避免出现「快速参数预览」与正式调用重复。
+<|DIRECT_TOOL_ROUTING_END_{{ .Nonce }}|>
+	`, map[string]any{
+		"Nonce": aicommon.RecentToolCacheStableNonce,
+	})
+}
+
 //go:embed prompts/todo_list.txt
 var todoListTemplate string
 
@@ -85,7 +98,7 @@ func (r *ReActLoop) generateSchemaString(disallowExit bool) (string, error) {
 	//
 	// 关键词: P2.1, schema 字节稳定, HasRecentlyUsedTools 跳变消除, verifier 兜底
 	toolManager := r.config.GetAiToolManager()
-	if toolManager == nil {
+	if toolManager == nil || r.disableDirectlyCallTool {
 		disableActionList = append(disableActionList, schema.AI_REACT_LOOP_ACTION_DIRECTLY_CALL_TOOL)
 	}
 
@@ -265,7 +278,11 @@ func (r *ReActLoop) generateLoopPrompt(
 	if tm := r.config.GetAiToolManager(); tm != nil && tm.HasRecentlyUsedTools() {
 		r.syncRecentToolParamAITagFields(tm.GetRecentToolParamNames())
 		var sb strings.Builder
-		sb.WriteString(renderRecentToolRoutingHint())
+		if r.disableDirectlyCallTool {
+			sb.WriteString(renderRecentToolRoutingHintRequireToolOnly())
+		} else {
+			sb.WriteString(renderRecentToolRoutingHint())
+		}
 		// nonce 参数已被 GetRecentToolsSummary 内部忽略, 实际渲染使用稳定 nonce.
 		// 这里仍然传 nonce 仅为了不破坏老接口签名.
 		if summary := tm.GetRecentToolsSummary(tm.GetRecentToolCacheMaxTokens(), nonce); summary != "" {

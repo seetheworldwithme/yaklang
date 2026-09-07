@@ -7,20 +7,20 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# ---------- 1. 确保 gzip-embed 工具存在 ----------
+# ---------- 1. 编译 gzip-embed 到仓库内路径（不依赖 GOPATH/bin 在 PATH 里）----------
 # 带 gzip_embed 的构建需要先把资源打成 .tar.gz，用本项目的 gzip-embed 工具生成
-if ! command -v gzip-embed &>/dev/null; then
-  echo "[build] gzip-embed not found, installing from repo..."
-  go install ./common/utils/gzip_embed/gzip-embed
-fi
+mkdir -p "$REPO_ROOT/build"
+GZIP_EMBED="$REPO_ROOT/build/gzip-embed"
+echo "[build] compiling gzip-embed -> $GZIP_EMBED"
+go build -o "$GZIP_EMBED" ./common/utils/gzip_embed/gzip-embed
 
 # ---------- 2. 生成 gzip_embed 所需的 .tar.gz 资源 ----------
 echo "[build] generating gzip embed resources..."
-gzip-embed -cache --source ./common/ai/aid/aitool/buildinaitools/yakscripttools/yakscriptforai --gz ./common/ai/aid/aitool/buildinaitools/yakscripttools/yakscriptforai.tar.gz --no-embed
-gzip-embed -cache --source ./common/ai/aid/aireact/skills --gz ./common/ai/aid/aireact/skills.tar.gz --root-path --no-embed
-gzip-embed -cache --source ./common/coreplugin/base-yak-plugin --gz ./common/coreplugin/base-yak-plugin.tar.gz --root-path --no-embed
-gzip-embed -cache --source ./common/syntaxflow/sfbuildin/buildin --gz ./common/syntaxflow/sfbuildin/buildin.tar.gz --no-embed
-gzip-embed -cache --source ./common/aiforge/buildinforge --gz ./common/aiforge/buildinforge.tar.gz --no-embed
+"$GZIP_EMBED" -cache --source ./common/ai/aid/aitool/buildinaitools/yakscripttools/yakscriptforai --gz ./common/ai/aid/aitool/buildinaitools/yakscripttools/yakscriptforai.tar.gz --no-embed
+"$GZIP_EMBED" -cache --source ./common/ai/aid/aireact/skills --gz ./common/ai/aid/aireact/skills.tar.gz --root-path --no-embed
+"$GZIP_EMBED" -cache --source ./common/coreplugin/base-yak-plugin --gz ./common/coreplugin/base-yak-plugin.tar.gz --root-path --no-embed
+"$GZIP_EMBED" -cache --source ./common/syntaxflow/sfbuildin/buildin --gz ./common/syntaxflow/sfbuildin/buildin.tar.gz --no-embed
+"$GZIP_EMBED" -cache --source ./common/aiforge/buildinforge --gz ./common/aiforge/buildinforge.tar.gz --no-embed
 
 # ---------- 3. 编译（-tags gzip_embed 会编入 //go:build gzip_embed 的代码） ----------
 echo "[build] building yak..."

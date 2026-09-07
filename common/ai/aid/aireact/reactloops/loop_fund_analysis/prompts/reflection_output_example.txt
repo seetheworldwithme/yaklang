@@ -1,0 +1,27 @@
+* 按目的加载技能（示例：反洗钱专项）：
+  {"@action": "loading_skills", "skill_name": "anti-money-analysis", "human_readable_thought": "加载反洗钱分析技能"}
+
+* 涉税案件加载税务技能：
+  {"@action": "loading_skills", "skill_name": "tax-fraud-analysis", "human_readable_thought": "加载涉税犯罪分析技能"}
+
+* 探查数据：
+  {"@action": "require_tool", "tool_require_payload": "read_excel_info", "human_readable_thought": "探查列名与行数"}
+
+* 写入脚本并执行：
+  {"@action": "require_tool", "tool_require_payload": "write_file", "human_readable_thought": "写入 ./step1.py"}
+  {"@action": "require_tool", "tool_require_payload": "bash", "human_readable_thought": "python3 ./step1.py"}
+
+* 记录进度（务必带 skill_name；fund-analysis 用 A–D）：
+  {"@action": "fund_analysis_progress", "skill_name": "anti-money-analysis", "phase": "stage1", "summary": "完成账户分类与初筛", "human_readable_thought": "记录当前技能阶段"}
+
+* 通用资金四阶段示例：
+  {"@action": "fund_analysis_progress", "skill_name": "fund-analysis", "phase": "A", "summary": "交易画像指标已汇总", "human_readable_thought": "阶段A完成"}
+
+* 输出报告：
+  {"@action": "require_tool", "tool_require_payload": "write_file", "human_readable_thought": "写入 ./report.md"}
+  {"@action": "directly_answer", "human_readable_thought": "输出摘要"}
+
+  <|FINAL_ANSWER_<nonce>|>
+  ## 摘要
+  报告路径: ./report.md
+  <|FINAL_ANSWER_END_<nonce>|>
