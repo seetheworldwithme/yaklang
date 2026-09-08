@@ -24,6 +24,17 @@ jobs:
         # manylinux 脚本以只读方式挂载宿主机 GOMODCACHE，必须先在宿主机下载
         run: go mod download
 
+      - name: 生成 gzip-embed 资源
+        # 脚本 BUILD_TAGS 空串会回退为 gzip_embed，需先生成各 //go:embed 引用的 tar.gz
+        run: |
+          go install ./common/utils/gzip_embed/gzip-embed
+          gzip-embed -cache --source ./common/ai/aid/aitool/buildinaitools/yakscripttools/yakscriptforai --gz ./common/ai/aid/aitool/buildinaitools/yakscripttools/yakscriptforai.tar.gz --no-embed
+          gzip-embed -cache --source ./common/ai/aid/aireact/skills --gz ./common/ai/aid/aireact/skills.tar.gz --root-path --no-embed
+          gzip-embed -cache --source ./common/yso/resources/static --gz ./common/yso/resources/static.tar.gz --no-embed --root-path
+          gzip-embed -cache --source ./common/coreplugin/base-yak-plugin --gz ./common/coreplugin/base-yak-plugin.tar.gz --root-path --no-embed
+          gzip-embed -cache --source ./common/syntaxflow/sfbuildin/buildin --gz ./common/syntaxflow/sfbuildin/buildin.tar.gz --root-path --no-embed
+          gzip-embed -cache --source ./common/aiforge/buildinforge --gz ./common/aiforge/buildinforge.tar.gz --root-path --no-embed
+
       - name: Build (manylinux2014 容器，glibc 2.17 基线)
         # BUILD_TAGS 传空串：跳过 gzip_embed，避免生成 tar.gz 资源
         run: >
