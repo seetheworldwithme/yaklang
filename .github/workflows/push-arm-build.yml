@@ -1,0 +1,65 @@
+name: Push-ARM-Build
+
+# push 到 yakit-工行换皮 时构建 ARM 产物（轻量版，不生成 tar.gz 资源 / license 证书，
+# 正式发布仍走 tag 触发的 exp-cross-build.yml）。
+on:
+  push:
+    branches: ["yakit-工行换皮"]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+jobs:
+  linux-arm64:
+    name: Build yak_linux_arm64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Go mod download
+        # manylinux 脚本以只读方式挂载宿主机 GOMODCACHE，必须先在宿主机下载
+        run: go mod download
+
+      - name: Build (manylinux2014 容器，glibc 2.17 基线)
+        # BUILD_TAGS 传空串：跳过 gzip_embed，避免生成 tar.gz 资源
+        run: >
+          bash .github/scripts/build-linux-manylinux.sh
+          quay.io/pypa/manylinux2014_aarch64
+          yak_linux_arm64
+          ""
+          "dev-$(git rev-parse --short HEAD)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yak_linux_arm64
+          path: yak_linux_arm64
+
+  windows-arm64:
+    name: Build yak_windows_arm64.exe
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup llvm-mingw (写入 CC/CXX 到 GITHUB_ENV)
+        shell: pwsh
+        run: .github/scripts/setup-llvm-mingw-windows-arm64.ps1
+
+      - name: Build
+        shell: pwsh
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go build -ldflags "-s -w -X 'main.goVersion=$(go version)' -X 'main.gitHash=$(git show -s --format=%H)' -X 'main.buildTime=$(git show -s --format=%cd)' -X 'main.yakVersion=dev-$($env:GITHUB_SHA.Substring(0,7))'" -o yak_windows_arm64.exe -v common/yak/cmd/yak.go
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yak_windows_arm64.exe
+          path: yak_windows_arm64.exe
