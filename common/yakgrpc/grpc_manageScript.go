@@ -61,7 +61,8 @@ func (s *Server) LoadNucleiTemplates(ctx context.Context, req *ypb.Empty) (*ypb.
 				Content:    r.Raw,
 				Params:     strconv.Quote(string(raw)),
 				Help:       r.Info.Description,
-				Author:     r.Info.Author,
+				// 私有部署：nuclei 模板作者统一为 Admin，不保留模板 yaml 里的原始作者
+				Author:     "Admin",
 				Tags:       r.Info.Tags,
 				FromLocal:  true,
 				LocalPath:  r.LocalPath,

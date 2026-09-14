@@ -479,13 +479,15 @@ func (s *OnlineClient) Save(db *gorm.DB, plugins ...*OnlinePlugin) error {
 			Content:              i.Content,
 			Params:               paramsStr,
 			Help:                 i.Help,
-			Author:               i.Author,
+			// 私有部署：商店导入的插件上传者统一为 Admin，不保留商店原始作者昵称
+			Author:               "Admin",
 			Tags:                 strings.Join(tags, ","),
 			IsGeneralModule:      i.IsGeneralModule,
 			EnablePluginSelector: i.EnablePluginSelector,
 			PluginSelectorTypes:  i.PluginSelectorTypes,
 			OnlineId:             i.Id,
-			OnlineContributors:   i.OnlineContributors,
+			// 贡献者同样是商店侧真实用户昵称，一并置空避免泄露
+			OnlineContributors:   "",
 			OnlineIsPrivate:      i.IsPrivate,
 			UserId:               i.UserId,
 			Uuid:                 i.UUID,
@@ -514,23 +516,6 @@ func (s *OnlineClient) Save(db *gorm.DB, plugins ...*OnlinePlugin) error {
 		riskDetailRaw, _ := json.Marshal(riskDetail)
 		y.RiskDetail = strconv.Quote(string(riskDetailRaw))
 
-		if i.CollaboratorInfo != nil {
-			var collaboratorInfo []*ypb.Collaborator
-			for _, collaborator := range i.CollaboratorInfo {
-				collaboratorInfo = append(collaboratorInfo, &ypb.Collaborator{
-					HeadImg:  collaborator.HeadImg,
-					UserName: collaborator.UserName,
-				})
-			}
-			collaboratorInfoRaw, _ := json.Marshal(collaboratorInfo)
-			collaboratorInfoStr := strconv.Quote(string(collaboratorInfoRaw))
-			y.CollaboratorInfo = collaboratorInfoStr
-		}
-
-		if y.OnlineContributors != "" && y.OnlineContributors != y.Author {
-			y.Author = strings.Join([]string{y.Author, y.OnlineContributors}, ",")
-			y.Author = strings.Join(utils.RemoveRepeatStringSlice(utils.PrettifyListFromStringSplited(y.Author, ",")), ",")
-		}
 		groupMetadata := make([]pluginbundle.Group, 0, len(onlineGroup))
 		for _, group := range onlineGroup {
 			groupMetadata = append(groupMetadata, pluginbundle.Group{Name: group})

@@ -650,6 +650,16 @@ func OverWriteYakPlugin(name string, scriptData *schema.YakScript, enableGenerat
 		scriptData.Uuid = databasePlugin.Uuid
 	}
 	if databasePlugin.Content != "" && newestPluginHash == pluginHash(databasePlugin.Content, databasePlugin.HeadImg, databasePlugin.Tags, databasePlugin.Ignored, databasePlugin.EnableForAI, databasePlugin.AIDesc, databasePlugin.AIKeywords) && databasePlugin.IsCorePlugin {
+		// 内容未变化时跳过重建，但内置插件作者（Admin）不参与内容 hash，
+		// 老库存量记录（如 yaklang.io）需要在此归一刷新
+		if databasePlugin.Author != scriptData.Author {
+			databasePlugin.Author = scriptData.Author
+			if err := yakit.CreateOrUpdateYakScriptByName(consts.GetGormProfileDatabase(), name, databasePlugin); err != nil {
+				log.Errorf("refresh buildin plugin author [%v] failed: %s", name, err)
+			} else {
+				log.Infof("refresh buildin plugin [%v] author to %v", name, scriptData.Author)
+			}
+		}
 		log.Debugf("existed plugin's code is not changed, skip: %v", name)
 		return
 	} else {
