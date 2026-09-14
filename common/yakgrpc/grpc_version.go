@@ -27,7 +27,8 @@ func (s *Server) YakVersionAtLeast(ctx context.Context, req *ypb.YakVersionAtLea
 	}
 
 	ok := false
-	if version == "dev" || version == "" {
+	// 本地/CI 构建的引擎版本形如 dev-<shorthash>，无法参与 semver 比较，视为开发版直接放行
+	if version == "" || strings.HasPrefix(version, "dev") {
 		ok = true
 	} else {
 		ok = utils.VersionGreaterEqual(version, atLeastVersion)

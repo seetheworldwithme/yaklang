@@ -27,6 +27,12 @@ func TestYakVersionAtLeast(t *testing.T) {
 	if !yakVersionAtLeast(t, local, "dev", "0.01") {
 		t.Fatal("dev should pass")
 	}
+	if !yakVersionAtLeast(t, local, "dev-1048cc939", "v1.2.9-sp3") {
+		t.Fatal("dev-<hash> build should pass")
+	}
+	if !yakVersionAtLeast(t, local, "dev", "v1.2.9-sp3") {
+		t.Fatal("dev should at least v1.2.9-sp3")
+	}
 	if !yakVersionAtLeast(t, local, "v1.2.9-sp3", "v1.2.9-sp3") {
 		t.Fatal("v1.2.9-sp3 should at least v1.2.9-sp3")
 	}
