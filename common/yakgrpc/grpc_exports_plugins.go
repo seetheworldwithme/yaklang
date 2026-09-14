@@ -93,6 +93,13 @@ func (s *Server) ImportYakScriptStream(
 		if err := json.Unmarshal(raw, &script); err != nil {
 			return utils.Wrapf(err, "unmarshal yakit script failed: %v", metadata.Filename)
 		}
+		// 私有部署：导入包中的商店/内置插件上传者归一为 Admin，不保留包内原始作者昵称；
+		// 用户自建插件(无在线来源且非内置)保留原作者
+		if script.IsCorePlugin || script.OnlineScriptName != "" {
+			script.Author = "Admin"
+			script.OnlineContributors = ""
+			script.CollaboratorInfo = ""
+		}
 		if script.ScriptName == "" {
 			log.Warnf("yakit script name is empty: %v", metadata.Filename)
 			continue
