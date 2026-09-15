@@ -133,7 +133,7 @@ func CheckInvalidProjectName(name string) error {
 
 func GetExportFile(projectName, suffix string) string {
 	outputFile := filepath.Join(consts.GetDefaultYakitProjectsDir(),
-		"project-"+projectNameToFileName(projectName)+".yakitproject"+suffix)
+		"project-"+projectNameToFileName(projectName)+".project"+suffix)
 	return outputFile
 }
 

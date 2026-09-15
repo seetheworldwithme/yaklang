@@ -5,20 +5,41 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
-	"github.com/yaklang/gorm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/yaklang/gorm"
 	"github.com/yaklang/yaklang/common/consts"
 	"github.com/yaklang/yaklang/common/log"
 	"github.com/yaklang/yaklang/common/utils"
 	"github.com/yaklang/yaklang/common/yakgrpc/yakit"
 	"github.com/yaklang/yaklang/common/yakgrpc/ypb"
 )
+
+func TestGetExportFileUsesProductNeutralExtension(t *testing.T) {
+	tests := []struct {
+		name        string
+		projectName string
+		suffix      string
+		want        string
+	}{
+		{name: "plaintext", projectName: "default", want: "project-default.project"},
+		{name: "encrypted", projectName: "default", suffix: ".enc", want: "project-default.project.enc"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := filepath.Base(yakit.GetExportFile(tt.projectName, tt.suffix)); got != tt.want {
+				t.Fatalf("GetExportFile() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestServer_UpdateProject_DuplicateName(t *testing.T) {
 	client, err := NewLocalClient()
