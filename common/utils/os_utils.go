@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"os/user"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -243,12 +242,10 @@ func GetHomeDirDefault(d string) string {
 
 // DefaultYakitProjectDirName 返回 Yakit 主工作目录在用户主目录下的目录名
 // （未设置 YAKIT_HOME 环境变量时的默认值）。
-// Linux 下使用 "web-project"（靖云甲定制），其余平台保持 "yakit-projects"。
+// 靖云甲定制：全平台使用 "web-project"（Electron 侧 app/main/filePath.js 的
+// projectName 同步保持一致），避免交付目录中出现 yakit 字样。
 func DefaultYakitProjectDirName() string {
-	if runtime.GOOS == "linux" {
-		return "web-project"
-	}
-	return "yakit-projects"
+	return "web-project"
 }
 
 func InDebugMode() bool {
