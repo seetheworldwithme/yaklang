@@ -92,7 +92,7 @@ func getDefaultTempFileDir() string {
 	if home := os.Getenv("YAKIT_HOME"); home != "" {
 		return filepath.Join(home, "temp")
 	}
-	return filepath.Join(GetHomeDirDefault("."), "yakit-projects", "temp")
+	return filepath.Join(GetHomeDirDefault("."), DefaultYakitProjectDirName(), "temp")
 }
 
 func RegisterTempFileOpener(dialer FileOpenerType) {

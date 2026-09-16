@@ -336,7 +336,7 @@ func GetDefaultYakitBaseDir() string {
 		return os.Getenv("YAKIT_HOME")
 	}
 
-	return filepath.Join(utils.GetHomeDirDefault("."), "yakit-projects")
+	return filepath.Join(utils.GetHomeDirDefault("."), utils.DefaultYakitProjectDirName())
 }
 
 // GetDefaultYakitBaseTempDir 获取 Yakit 的临时目录（导出名为 yakit.GetHomeTempDir）
@@ -362,7 +362,7 @@ func GetDefaultYakitBaseTempDir() string {
 		return dirName
 	}
 
-	a := filepath.Join(utils.GetHomeDirDefault("."), "yakit-projects", "temp")
+	a := filepath.Join(utils.GetHomeDirDefault("."), utils.DefaultYakitProjectDirName(), "temp")
 	if utils.GetFirstExistedPath(a) == "" {
 		_ = os.MkdirAll(a, 0o777)
 	}

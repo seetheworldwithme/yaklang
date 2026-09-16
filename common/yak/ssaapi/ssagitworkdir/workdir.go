@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"github.com/yaklang/yaklang/common/utils"
 )
 
 const (
@@ -128,7 +130,7 @@ func defaultYakitTempDir() string {
 	if err != nil || strings.TrimSpace(home) == "" {
 		home = "."
 	}
-	return filepath.Join(home, "yakit-projects", "temp")
+	return filepath.Join(home, utils.DefaultYakitProjectDirName(), "temp")
 }
 
 // Prepare validates the managed root and creates an isolated workspace owned by pid.

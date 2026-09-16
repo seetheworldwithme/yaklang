@@ -140,7 +140,7 @@ func HandleStdout(ctx context.Context, handle func(string)) error {
 			return dirName
 		}
 
-		a := filepath.Join(GetHomeDirDefault("."), "yakit-projects", "temp")
+		a := filepath.Join(GetHomeDirDefault("."), DefaultYakitProjectDirName(), "temp")
 		if GetFirstExistedPath(a) == "" {
 			_ = os.MkdirAll(a, 0777)
 		}
