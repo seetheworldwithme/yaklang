@@ -36,7 +36,7 @@ jobs:
           gzip-embed -cache --source ./common/aiforge/buildinforge --gz ./common/aiforge/buildinforge.tar.gz --root-path --no-embed
 
       - name: Build (manylinux2014 容器，glibc 2.17 基线)
-        # BUILD_TAGS 传空串：跳过 gzip_embed，避免生成 tar.gz 资源
+        # 脚本 ${3:-gzip_embed} 会把空串回退为 gzip_embed，因此 tar.gz 资源必须在上一步先生成
         run: >
           bash .github/scripts/build-linux-manylinux.sh
           quay.io/pypa/manylinux2014_aarch64
