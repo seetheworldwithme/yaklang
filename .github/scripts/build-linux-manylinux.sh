@@ -49,10 +49,12 @@ if [ -n "${BUILD_TAGS}" ]; then
   args+=(-tags "${BUILD_TAGS}")
 fi
 args+=(-ldflags "-s -w")
-args+=(-ldflags "-X main.goVersion=${GO_VER_STR}")
-args+=(-ldflags "-X main.gitHash=${GIT_HASH}")
-args+=(-ldflags "-X main.buildTime=${BUILD_TIME}")
-args+=(-ldflags "-X main.yakVersion=${YAK_TAG}")
+# -X 的值含空格时（goVersion / buildTime）必须整体单引号：go 对 -ldflags 的值做
+# 引号感知的空格切分后传给链接器，不带引号的空格单词会被当成链接器参数导致 ld 报错退出
+args+=(-ldflags "-X 'main.goVersion=${GO_VER_STR}'")
+args+=(-ldflags "-X 'main.gitHash=${GIT_HASH}'")
+args+=(-ldflags "-X 'main.buildTime=${BUILD_TIME}'")
+args+=(-ldflags "-X 'main.yakVersion=${YAK_TAG}'")
 args+=(-o "./${OUTPUT_BINARY}" -v common/yak/cmd/yak.go)
 echo "Executing: ${args[*]}"
 "${args[@]}"

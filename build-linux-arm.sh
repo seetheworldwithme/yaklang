@@ -120,8 +120,10 @@ if [ ! -x /usr/local/go/bin/go ] || [ "$(go version 2>/dev/null | awk '{print $3
 fi
 
 GO_VER_STR="$(go version)"
+# 注意：goVersion/buildTime 的值含空格，-X 参数必须整体单引号，
+# 否则 -ldflags 按空格切分后多余单词会被当成链接器参数（ld 打印用法后构建失败）
 go build -trimpath -tags "${BUILD_TAGS}" \
-  -ldflags "-s -w -X main.goVersion=${GO_VER_STR} -X main.gitHash=${GIT_HASH} -X main.buildTime=${GIT_TIME} -X main.yakVersion=${YAK_TAG}" \
+  -ldflags "-s -w -X 'main.goVersion=${GO_VER_STR}' -X 'main.gitHash=${GIT_HASH}' -X 'main.buildTime=${GIT_TIME}' -X 'main.yakVersion=${YAK_TAG}'" \
   -o "./${OUTPUT_BINARY}" -v common/yak/cmd/yak.go
 ls -lh "./${OUTPUT_BINARY}"
 
