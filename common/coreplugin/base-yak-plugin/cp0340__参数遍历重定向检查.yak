@@ -1,0 +1,73 @@
+yakit.AutoInitYakit()
+
+status = msg => yakit.StatusCard("Status", msg)
+
+# Input your code!
+rs = randstr(100)
+
+status("获取 HTTPLOG")
+url, flag, err = risk.NewHTTPLog(rs)
+if err != nil {
+    yakit.StatusCard("ERROR", f`${err}`)
+    return
+}
+
+
+targets = cli.Text("target", cli.setVerboseName("目标"),cli.setRequired(true))
+cli.check()
+
+createOnce = sync.NewOnce()
+feedEcho = (url, name, flag) => {
+    createOnce.Do(func() {
+        yakit.EnableTable("结果", ["URL", "参数名", "FLAG"])
+    })
+    yakit.TableData(
+        "结果", 
+        {"URL": url, "参数名": name, "FLAG": flag}, 
+    )
+}
+ssrfOnce = sync.NewOnce()
+feedSSRFEcho = (url, name, flagUrl) => {
+    ssrfOnce.Do(func() {
+        yakit.EnableTable("SSRF", ["URL", "参数名", "PAYLOAD"])
+    })
+    yakit.TableData(
+        "SSRF", 
+        {"URL": url, "参数名": name, "PAYLOAD": flagUrl}, 
+    )
+}
+
+status("解析目标")
+count = 0
+for target in str.ParseStringToLines(targets) {
+    ishttps,packet,err =  poc.ParseUrlToHTTPRequestRaw("GET", target)
+    if err != nil {
+        yakit.Error("Build Request FAILED: %v", err)
+        continue
+    }
+
+
+    req = fuzz.MustHTTPRequest(packet, fuzz.https(ishttps))
+    status("开始解析参数")
+    for paramInstance in req.GetGetQueryParams() {
+        status("参数：" + paramInstance.String())
+        count++
+        yakit.StatusCard("执行目标数", f`${count}`)
+        rsp, err := paramInstance.Fuzz(url).ExecFirst()
+        if err != nil {
+            continue
+        }
+    
+        raw = rsp.LowhttpResponse.RawPacket
+        println(string(raw))
+        if raw.Contains(flag) {
+            feedEcho(rsp.Url, paramInstance.Name(), flag)
+        }
+        
+        if raw.Contains(rs) {
+            feedSSRFEcho(rsp.Url, paramInstance.Name(), url)
+        }
+        
+    }
+    
+}

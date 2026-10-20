@@ -1,0 +1,59 @@
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    var url
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    level=["","low","middle","high","critical"]
+    if isTls {
+        url="https://"+addr
+    }else{
+        url="http://"+addr
+    }
+    vulnable=false
+
+    reference="WordPress插件Rocklobster Contact Form 7 < 5.3.2 任意文件上传漏洞"
+    severity=level[4]
+    type="文件上传"
+
+    poc_url_r0= url + `/wp-content/plugins/contact-form-7/readme.txt`
+    req_r0, _ := http.NewRequest("GET",poc_url_r0,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_r0)
+    resp_r0, err := http.Do(req_r0)
+    die(err)
+    bresp,_=http.dump(resp_r0)
+    header, body = poc.Split(bresp)
+    r0_flag = false
+    if resp_r0.StatusCode == 200 && str.StartsWith(string(body),"=== Contact Form 7 ===") && parseint(re.FindSubmatch(string(body),`Stable tag: (?P<1st>[0-9]).[0-9.]+`)[1]) < 5 || parseint(re.FindSubmatch(string(body),`Stable tag: 5.(?P<mid>[0-9]).[0-9.]+`)[1]) < 3 || parseint(re.FindSubmatch(string(body),`Stable tag: 5.3.(?P<last>[0-9])`)[1]) < 2{
+        r0_flag = true
+    }
+
+    poc_url=poc_url_r0
+    if r0_flag{
+        vulnable = true
+    }
+    if vulnable {
+            yakit.Info("FOUND INFO for %v %v",reference,type)
+            risk.NewRisk(
+                url, risk.severity(severity), 
+                risk.title(sprintf("FOUND %v %v",reference,type)),
+                risk.titleVerbose(sprintf("%v %v",reference,type)),
+                risk.type(type), risk.typeVerbose(type),
+                risk.details({
+                    "request": breq,
+                    "response": bresp,
+                    "url": poc_url,
+                }),
+            )
+        }
+    return
+}
+handle = func(result) {
+    if !result.IsOpen(){
+        return
+    }
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+}

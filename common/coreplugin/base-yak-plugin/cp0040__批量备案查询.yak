@@ -1,0 +1,118 @@
+yakit.AutoInitYakit()
+log.setLevel("info")
+targets = cli.Text("targets", cli.setRequired(true))
+thread := cli.Int("thread", cli.setRequired(true), cli.setDefault(5))
+targets = str.ParseStringToLines(targets)
+//表格
+yakit.EnableTable("备案信息", ["target", "名称", "备案号", "性质", "备案域名"])
+icptable = func(target, icp_name, icp_icp, icp_type, icp_domain) {
+    data = make(map[string]any)
+    data["target"] = target
+    data["名称"] = icp_name
+    data["备案号"] = icp_icp
+    data["性质"] = icp_type
+    data["备案域名"] = icp_domain
+    yakit.TableData("备案信息", data)
+}
+
+cli.check()
+
+cookie = `acw_tc=0aef816517320667176427163e00b83d3058e4c68c122a16f9c1bdc7f8f022; .AspNetCore.Antiforgery.OGq99nrNx5I=CfDJ8OsC2ZLMIq9Ks_KNSEOc-tbR0Waa5yH3NWA0Tu8Cynct3vDLV44BsW1l-W7JKGvZwQl26x7G2KGAylG4r4Pi3cnJ3jog26Er4rK1Pvmkez7m5wQGD38wllZ6PxBxbrTeiMRTo9R6A0ZEZmapRsQ1O2o; machine_str=e20c0b10-ca96-40d7-9734-40ddd03c53fd;`
+
+wg = sync.NewSizedWaitGroup(thread)
+
+func beian(target) {
+    
+    defer wg.Done()
+
+    url = "https://www.beianx.cn/search/" + target
+    log.Info("%v %v ", target, url)
+    rsp = http.Get(url, http.ua(http.uarand()), http.cookie(cookie))~
+    rspRaw, err = http.dump(rsp)
+    if err != nil {
+        log.Error("%v", err)
+        yakit.Error("%v", err)
+    }
+    
+    die(err)
+    Rsp = string(rspRaw)
+    if str.Contains(Rsp, "没有查询到记录") {
+        log.Error("%v没有查询到记录", target)
+        yakit.Error("%v没有查询到记录", target)
+        return
+    }
+    
+    doc = xpath.LoadHTMLDocument(Rsp)~
+    icp_icps = []
+    icp_types = []
+    icp_names = []
+    icp_domains = []
+    icp = []
+    a := xpath.Find(
+        doc, 
+        `//div[@class="container"]//tbody/tr/td[4]/text()`, 
+    )
+    for _, node := range a {
+        if node != nil {
+            icp_icps = append(icp_icps, str.TrimSpace(xpath.InnerText(node)))
+        }
+        
+    }
+    
+
+    b := xpath.Find(
+        doc, 
+        `//div[@class="container"]//tbody/tr/td[2]/a/text()`, 
+    )
+    for _, node := range b {
+        if node != nil {
+            icp_names = append(icp_names, str.TrimSpace(xpath.InnerText(node)))
+        }
+        
+    }
+    
+
+    c := xpath.Find(
+        doc, 
+        `//div[@class="container"]//tbody/tr/td[3]/text()`, 
+    )
+    for _, node := range c {
+        if node != nil {
+            icp_types = append(icp_types, str.TrimSpace(xpath.InnerText(node)))
+        }
+        
+    }
+    
+//备案域名，去掉了www
+    d := xpath.Find(
+        doc, 
+        `//div[@class="container"]//tbody/tr/td[6]//a/text()`, 
+    )
+    for _, node := range d {
+        if node != nil {
+            domain = str.ReplaceAll(str.TrimSpace(xpath.InnerText(node)), "www.", "")
+            icp_domains = append(icp_domains, domain)
+        }
+        
+    }
+    
+    icp = append(icp, icp_names, icp_icps, icp_types, icp_domains)
+    for i, j := range icp[0] {
+        icptable(target, icp[0][i], icp[1][i], icp[2][i], icp[3][i])
+        log.Info("%v %v %v %v %v", target, icp[0][i], icp[1][i], icp[2][i], icp[3][i])
+    }
+    
+    return icp
+}
+
+for _, target := range targets { 
+    //判断输入的是url还是公司全名
+    if len(str.ExtractDomain(target,true)) > 1{
+        target = str.ExtractDomain(target,true)[0]
+    }
+    println(target)
+    wg.Add()
+    go beian(target)
+}
+
+wg.Wait()

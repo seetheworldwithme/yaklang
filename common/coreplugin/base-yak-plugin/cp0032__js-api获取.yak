@@ -1,0 +1,208 @@
+yakit.AutoInitYakit()
+
+target = cli.String("target", cli.setRequired(true))
+
+isSSA = cli.Bool("is_ssa", cli.setDefault(false),cli.setHelp("启用SSA分析，将会提升分析精度，可以提取API接口的方法、参数等信息，但是分析速率会降低"),cli.setCliGroup("SSA分析"),cli.setVerboseName("启用SSA分析"))
+
+customBasePath = cli.String("custom_base_path", cli.setHelp("自定义域名，解析的接口会拼接该域名。比如设置为\"http://www.example.com\",则解析接口/a的输出结果为\"http://www.example.com/a\""),cli.setVerboseName("自定义域名"))
+
+filterSuffix=cli.String("filter_suffix",cli.setDefault("css,jpg,htm,png,ico"), cli.setHelp("设置要过滤接口后缀名，多个后缀名逗号隔开，一般用于过滤css等文件"),cli.setVerboseName("过滤接口后缀名"))
+cli.check()
+filterSuffixSlice=[]
+if filterSuffix!=""{
+    filterSuffix = str.TrimSpace(filterSuffix)
+    filterSuffixSlice = str.Split(filterSuffix, ",")
+}
+yakit.Info("过滤后缀名:%v",filterSuffixSlice)
+var BaseRoot = ""
+var regmap = map[string][]string{
+    "GET":[]string{`\w\.get\(\"(.*?)\"`,`return\s.*?\[\".\"\]\.get\(\"(.*?)\"`},
+    "POST":[]string{`\w\.post\(\"(.*?)\"`,`return\s.*?\[\".\"\]\.post\(\"(.*?)\"`},
+}
+regSlice = []string{
+    `['"]\d+\.\d+\.\d+\.\d+`,` [a-zA-Z0-9\-\.]*?\.['"]`,
+    `['"]\/[^/][^>< \)\(\{\}]*?['"]`,
+    `['"](([a-zA-Z0-9]+:)?\/\/)?[a-zA-Z0-9\-\.]*?\.(xin|com|cn|net|com.cn|vip|top|cc|shop|club|wang|xyz|luxe|site|news|pub|fun|online|win|red|loan|ren|mom|net.cn|org|link|biz|bid|help|tech|date|mobi|so|me|tv|co|vc|pw|video|party|pics|website|store|ltd|ink|trade|live|wiki|space|gift|lol|work|band|info|click|photo|market|tel|social|press|game|kim|org.cn|games|pro|men|love|studio|rocks|asia|group|science|design|software|engineer|lawyer|fit|beer|我爱你|中国|公司|网络|在线|网址|网店|集团|中文网)(\/.*?)?['"]`,
+    `['"]\/[^/][^>< \)\(\{\}]*?['"]`,
+    `['"]\d+\.\d+\.\d+\.\d+\:\d+['"]`,
+    `['"][a-zA-Z0-9\-\.]*?\.(xin|com|cn|net|com.cn|vip|top|cc|shop|club|wang|xyz|luxe|site|news|pub|fun|online|win|red|loan|ren|mom|net.cn|org|link|biz|bid|help|tech|date|mobi|so|me|tv|co|vc|pw|video|party|pics|website|store|ltd|ink|trade|live|wiki|space|gift|lol|work|band|info|click|photo|market|tel|social|press|game|kim|org.cn|games|pro|men|love|studio|rocks|asia|group|science|design|software|engineer|lawyer|fit|beer|我爱你|中国|公司|网络|在线|网址|网店|集团|中文网)['"]`
+}
+
+matchReg = func(path,body){
+    for _,reg = range regSlice{
+    results= re.FindAll(body, reg)
+    for _,res:=range results{
+        res = str.Trim(res, "\'")
+        res = str.Trim(res, "\"")
+        res = str.TrimSpace(res)
+        addResult(path,res,"")
+    }
+}
+}
+
+host,port = str.ParseStringToHostPort(target)~
+BaseRoot = host+":"+string(port)
+if target.Contains("http"){
+    BaseRoot = "http://"+host+":"+string(port)
+}else{
+    BaseRoot = "https://"+host+":"+string(port)
+}
+
+isFilterSuffix = func(path){
+    if len(filterSuffixSlice)==0{
+        return false
+    }
+    for _,suffix := range filterSuffixSlice {
+        if str.HasSuffix(path, suffix){
+            return true
+        }
+    }
+    return false
+}
+//维护一张表，以方便去重
+resultMap = []
+addResult = func(jspath,path,param){
+    text = jspath+path+param
+    hash = codec.Md5(text)
+    // 为过滤的内容则不添加
+    if isFilterSuffix(path){
+        return
+    }
+    for _,result = range resultMap{
+        if result["hash"] ==hash{
+            return
+        }
+        
+    }
+    resultMap = append(resultMap,{"jspath":jspath,"path":path,"param":param,"hash":hash})
+}
+
+
+
+yakit.EnableTable("js-api", ["API来源","匹配方式","路径","参数"])
+var disableSyntax =[]string{"jquery","md5","cdn"} //解析黑名单，默认不解析
+outputTable = func() {
+    for _,result = range resultMap{
+        path = result["path"]
+        data = make(map[string]var)
+        host,port,err = str.ParseStringToHostPort(path)
+        if err !=nil{
+            if customBasePath != ""{
+                if str.IsUrlPath(customBasePath){
+                    path = str.UrlJoin(customBasePath, path)~   
+                }else {
+                    path = customBasePath+path
+                }
+            }else{
+                 path = str.UrlJoin(BaseRoot, path)~
+            }
+        }else{
+            path = path
+        }
+        data["API来源"]=result["jspath"]
+        data["路径"] = path
+        data["参数"] = result["param"]
+        yakit.TableData("js-api", data)
+    }
+}
+
+
+
+
+func ssaParse(path,body){
+        handlerAndStoreTable = func(values){
+        for _, value := range values {
+            if value.GetOpcode()=="Make"{
+                url, ok = value.GetMembersByString("url")
+                if !ok || url == nil || url.String()==""{
+                    continue
+                }else{
+                    addResult(path, url.String(), "")
+                }
+            }
+            if value.GetOpcode() == "ConstInst" {
+                addResult(path, value.String(), "")
+		}
+        }
+    }
+    prog,err = ssa.Parse(string(body), ssa.withLanguage(ssa.Javascript))
+    if err{
+        log.error("syntax js fail", err)
+        return
+    }
+    result = prog.SyntaxFlowWithError(`
+    .ajax(* #-> as $ajax_info)
+    .open(* as $openParams)
+    $openParams<slice(start=0)> #-> as $xml_http_method
+    $openParams<slice(start=1)> #-> as $xml_http_url
+
+    /(?i)([axios\.](get)|(post)|(patch)|(delete)|(put)|)/(* as $axiosparams)
+    $axiosparams<slice(start=0)> #-> as $ajax_get_url
+    $axiosparams<slice(start=1)> #-> *?{!opcode: call,function}<getMembers> as $dollar_get_member
+    axios(* #-> *<getMembers> as $_axios_info)
+    fetch(* #-> * as $fetch_url)
+    `)~
+    handlerAndStoreTable(result.GetValues("ajax_info"))
+    handlerAndStoreTable(result.GetValues("xml_http_url"))
+    handlerAndStoreTable(result.GetValues("ajax_get_url"))
+    handlerAndStoreTable(result.GetValues("_axios_info"))
+    handlerAndStoreTable(result.GetValues("fetch_url"))
+}
+
+
+func GetjsUrl(jsUrl){
+    if str.HasPrefix(jsUrl, "/"){
+        return str.UrlJoin(BaseRoot,jsUrl)~
+    }else{
+        return str.UrlJoin(target,jsUrl)~
+    }
+}
+
+
+
+
+func Match(body,path){
+    dump(body)
+    yakit.Info("正则匹配中:%v",path)
+    matchReg(path,body)
+    if isSSA{
+        yakit.Info("SSA匹配中:%v",path)
+        // matchJs(path,body)
+        ssaParse(path, body)
+    }
+}
+res,_ = poc.Get(target,poc.redirectTimes(5))~
+body = res.GetBody()
+yakit.Info("正则匹配中:%v",target )
+matchReg(target, body)
+var preJs =[]string{}
+htmlNode = xpath.LoadHTMLDocument(string(body))~
+res = xpath.Find(htmlNode, `//script`)
+for _,node :=range res{
+    for _ ,i := range node.Attr{
+    if i.Key=="src"{
+        preJs = append(preJs,i.Val)
+    }
+    }
+    script = xpath.InnerText(node)
+    if script!=""{
+        Match(script, "/")
+    }
+}
+swg = sync.NewSizedWaitGroup(5)
+for i in preJs{
+    jspath:=i
+    swg.Add(1)
+    go func(){
+        defer swg.Done()
+        res,_ = poc.Get(GetjsUrl(jspath),poc.redirectTimes(5))~
+        if 200!=poc.GetStatusCodeFromResponse(res.BareResponse){
+            return
+        }
+        body:=res.GetBody()
+        Match(string(body), GetjsUrl(jspath))
+        outputTable()
+    }()
+}
+swg.Wait()
+outputTable()

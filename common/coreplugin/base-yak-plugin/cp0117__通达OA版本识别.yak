@@ -1,0 +1,98 @@
+# port scan plugin
+yakit.AutoInitYakit()
+log.setLevel("info")
+
+
+sendPacket = func(addr) {
+    return poc.HTTP(`GET / HTTP/1.1
+Host: {{params(target)}}
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate
+Accept-Language: zh-CN,zh;q=0.9
+Cache-Control: no-cache
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36`,
+        poc.params({
+            "target": addr,
+        }),
+        //poc.proxy("http://127.0.0.1:8083"),
+    )
+}
+
+verPacket = func(addr) {
+    return poc.HTTP(`GET /inc/expired.php HTTP/1.1
+Host: {{params(target)}}
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate
+Accept-Language: zh-CN,zh;q=0.9
+Cache-Control: no-cache
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36`,
+        poc.params({
+            "target": addr,
+        }),
+        //poc.proxy("http://127.0.0.1:8083"),
+    )
+}
+
+handleCheck = func(target,port){
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    
+    sendrsp, _, senderr = sendPacket(addr)
+    if senderr != nil {
+        yakit.Error(string(senderr))
+        return
+    }
+    hand, body = str.SplitHTTPHeadersAndBodyFromPacket(sendrsp)
+
+    drsp, derr = str.ParseBytesToHTTPResponse(sendrsp)
+    if derr != nil {
+        yakit.Error(string(derr))
+        return
+    }
+
+    if drsp.StatusCode == 200 && str.MatchAllOfSubString(body, `您的电脑可能感染了病毒或木马程序，请联系OA软件开发商寻求解决办法或下载360安全卫士查杀`) {
+        yakit.Info("发现通达OA系统")
+        verrsp, _, vererr = verPacket(addr)
+        if vererr != nil {
+            yakit.Error(string(vererr))
+            return
+        }
+        dvrsp, dverr = str.ParseBytesToHTTPResponse(verrsp)
+        if dverr != nil {
+            yakit.Error(string(dverr))
+            return
+        }
+        verheader, verbody = str.SplitHTTPHeadersAndBodyFromPacket(verrsp)
+        if str.MatchAllOfSubString(verbody, `Web服务版本号`) {
+            version = re.Find(verbody, `Web服务版本号：([0-9\.]+)`)[9:]
+            risk.NewRisk(
+                addr,risk.title(sprintf(`通达OA系统 %v版`, version)),
+                risk.severity("fingerprint Identification"),
+                risk.titleVerbose(sprintf(`通达OA系统 %v版`, version)),
+                risk.type("版本识别[通达OA]"),
+                risk.details({
+                    "request": string(sendreq),
+                    "response": string(sendrsp),
+                    "url": addr,
+                    "payload": version,
+                }),
+            )
+        }
+    }
+
+}
+
+handle = func(result /* *fp.MatchResult */) {
+    // handle match result
+    if !result.IsOpen(){
+        return
+    }
+
+
+    if len(result.Fingerprint.HttpFlows) > 0 {
+        handleCheck(result.Target,result.Port)
+    }
+    
+}

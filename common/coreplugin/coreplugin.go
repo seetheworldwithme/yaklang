@@ -71,6 +71,12 @@ func withPluginEnableForAI(desc string, keywords string) pluginOption {
 
 func registerBuildInPlugin(pluginType string, name string, opt ...pluginOption) {
 	codes := string(GetCorePluginData(name))
+	registerBuildInPluginContent(pluginType, name, codes, opt...)
+}
+
+// registerBuildInPluginContent 注册内置插件；codes 由调用方提供
+// （官方内置按名从 embed FS 读取，社区内置经 communityBuildInPluginMetas 映射读取）
+func registerBuildInPluginContent(pluginType string, name string, codes string, opt ...pluginOption) {
 	if len(codes) <= 0 {
 		return
 	}
@@ -516,6 +522,10 @@ func syncCorePluginEmbedInternal() error {
 			"allow-custom-multiple-history-mutate",
 		}),
 	)
+
+	// 社区插件内置化：注册 539个插件.zip 中的 501 个社区插件(上传者归一为 Admin)
+	registerCommunityBuildInPlugins()
+
 	return yakit.EnsurePocBuiltInGroups(consts.GetGormProfileDatabase())
 }
 

@@ -1,0 +1,34 @@
+# codec plugin
+
+/*
+Codec Plugin 可以支持在 Codec 中自定义编码解码，自定义 Bypass 与字符串处理函数
+
+函数定义非常简单
+
+func(i: string) string
+*/
+
+handle = func(origin /*string*/) {
+    # handle your origin str
+    result = ""
+    ciphertext = []byte(origin) 
+    for shift = range 26 {
+        	decrypted := ""
+            for _, char := range ciphertext {
+                if char >= 'a' && char <= 'z' {
+                    // 对小写字母进行解密
+                    shiftedChar := ((int(char) - 'a' - shift + 26) % 26) + 'a'
+                    decrypted += string(chr(shiftedChar))
+                } else if char >= 'A' && char <= 'Z' {
+                    // 对大写字母进行解密
+                    shiftedChar := ((int(char) - 'A' - shift + 26) % 26) + 'A'
+                    decrypted += string(chr(shiftedChar))
+                } else {
+                    // 非字母字符不变
+                    decrypted += string(chr(char))
+                }
+            }
+            result = result+decrypted+"\n"
+    }
+    return result
+}

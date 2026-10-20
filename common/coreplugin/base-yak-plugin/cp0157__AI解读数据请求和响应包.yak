@@ -1,0 +1,27 @@
+# codec plugin
+handleFlow = flowId => {
+    buf = ""
+    for flow in db.QueryHTTPFlowsByID(flowId) {
+        prompt := f"你作为一个计算机研发专家，来帮我解读一下我要给你的数据包，这个数据包 URL：${flow.Url} 是\n请求包:\n${flow.Request} 响应：${flow.Response}"
+        key = f"${flow.ID} 状态"
+        yakit.StatusCard(key, "开始解读")
+        data, err = ai.Chat(prompt)
+        if err != nil { 
+            yakit.StatusCard(key, "AI 解读出错：%v" % err)
+            continue
+        }
+        yakit.StatusCard(key, "AI 解读完成")
+        buf+=data + "\n\n"
+    }
+    return buf
+}
+
+handle = func(origin /*string*/) {
+    originStr := origin
+    buf = ""
+    for result in originStr.Split(",") {
+        buf += "-----------------------------------------\n"
+        buf += handleFlow(atoi(result)~)
+    }
+    return buf
+}

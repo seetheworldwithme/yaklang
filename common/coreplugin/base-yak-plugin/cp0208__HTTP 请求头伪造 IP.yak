@@ -1,0 +1,49 @@
+headers = cli.Text("header", cli.setVerboseName("替换头"), cli.setDefault(<<<HEAD
+X-Forwarded-For
+X-Forwarded
+Forwarded-For
+Forwarded
+X-Forwarded-Proto
+X-Forwarded-Host
+X-Remote-IP
+X-Remote-addr
+True-Client-IP
+Client-IP
+X-Real-IP
+Ali-CDN-Real-IP
+Cdn-Src-Ip
+CDN-Real-Ip
+CF-Connecting-IP
+X-Cluster-Client-IP
+WL-Proxy-Client-IP
+Proxy-Client-IP
+Fastly-Client-Ip
+True-Client-Ip
+X-Originating-IP
+X-Host
+X-Custom-IP-Authorization
+X-Original-Host
+X-Original-IP
+Via
+X-Via
+X-Client-IP
+
+HEAD), cli.setRequired(true))
+target = cli.String("target", cli.setVerboseName("伪造IP"), cli.setDefault("127.0.0.1"), cli.setRequired(true))
+shouldRandom = cli.Bool("random", cli.setRequired(true), cli.setDefault(false), cli.setVerboseName("随机生成IP"))
+cli.check()
+
+hijackHTTPRequest = func(isHttps, url, req, forward /*func(modifiedRequest []byte)*/, drop /*func()*/) {
+    if shouldRandom {
+        target = x`{{ri(1,255)}}.{{ri(0,255)}}.{{ri(0,255)}}.{{ri(0,255)}}`[0]
+    }
+    for i in headers.Split("\n") {
+        i = str.TrimSpace(i)
+        if i == "" {
+            continue
+        }
+        req = poc.ReplaceHTTPPacketHeader(req, i, target)
+    }
+    //db.SaveHTTPFlowFromRawWithOption(url /*type: string*/, req /*type: []byte*/, nil)
+    forward(req)
+}

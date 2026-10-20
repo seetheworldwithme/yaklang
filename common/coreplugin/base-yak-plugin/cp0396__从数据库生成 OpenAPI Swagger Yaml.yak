@@ -1,0 +1,36 @@
+handle = func(origin /* string */) {
+    flowId = atoi(origin)~
+    resultString = ""
+    for result in db.QueryHTTPFlowsByID(flowId) {
+        host = str.ExtractHost(result.Url)
+        yakit.Info("开始生成文档：%v %v", result.Url, host)
+        result, err = openapi.ExtractOpenAPI3Scheme(host)
+        if err != nil {
+            yakit.Error(f"生成失败：${err}")
+            yakit.StatusCard("Error", f`FAILED: ${err}`)
+            continue
+        }
+        
+        yakit.Info("开始生成 JSON")
+        ret, err = result.MarshalJSON()
+        if err != nil {
+            yakit.Error(f"生成失败：${err}")
+            yakit.StatusCard("Error", f`FAILED: ${err}`)
+            continue
+        }
+        
+        resultString = string(ret)
+
+        yakit.Info("开始生成 YAML")
+        try {
+            yamlInfo = openapi.ConvertJsonToYaml(resultString)~
+            yakit.Text(string(yamlInfo))
+            resultString = string(yamlInfo)
+        } catch e {
+            yakit.Error(f"生成失败：${err}")
+            yakit.StatusCard("YAML 生成", f"失败：${e}")
+        }
+    }
+
+    return resultString
+}

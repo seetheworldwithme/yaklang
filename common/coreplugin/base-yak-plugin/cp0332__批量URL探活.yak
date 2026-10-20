@@ -1,0 +1,71 @@
+yakit.AutoInitYakit()
+
+targets = cli.Text("target", cli.setRequired(true), cli.setVerboseName("目标列表"))
+targetList := str.SplitAndTrim(targets, "\n")
+proxyStr = cli.String("proxy", cli.setVerboseName("代理"))
+
+cli.check()
+
+println(proxyStr)
+if proxyStr != "" {
+    yakit.Info("使用代理：%v", proxyStr)
+    proxy = proxyStr
+} else {
+    proxy := "0"
+}
+
+
+yakit.EnableTable(
+    "URL探活", 
+    ["url", "statuscode", "title", "server", "contentlength"], 
+)
+outputTable = func(url, statuscode, title, server, contentlength) {
+    data = make(map[string]any)
+    data["url"] = url
+    data["statuscode"] = statuscode
+    data["title"] = title
+    data["server"] = server
+    data["contentlength"] = contentlength
+    yakit.TableData("URL探活", data)
+}
+func UrlInfo(url, proxy) {
+    packet = ""
+
+    if proxy == "0" {
+        rsp, _ = poc.Get(url, poc.replaceRandomUserAgent())~
+        packet = rsp.RawPacket
+    } else {
+        rsp, _ = poc.Get(url, poc.replaceRandomUserAgent(), poc.proxy(proxy))~
+        packet = rsp.RawPacket
+    }
+    
+    statusCode = poc.GetStatusCodeFromResponse(packet)
+    title = string(str.ExtractTitle(packet))
+    server = poc.GetHTTPPacketHeader(packet, "Server")
+    contentlength = len(poc.GetHTTPPacketBody(packet))
+    return url, statusCode, title, server, contentlength
+}
+
+targetFinal = make([]string, 0, len(targetList) * 2)
+for url in targetList {
+    if !url.HasPrefix("https://") && !url.HasPrefix("http://") {
+        targetFinal.Push("https://" + url)
+        targetFinal.Push("http://" + url)
+    } else {
+        targetFinal.Push(url)
+    }
+}
+
+for index, element = range targetFinal {
+    try {
+        r = UrlInfo(element, proxyStr)
+        if len(r) == 0 {
+            continue
+        } else {
+            println(r[0], r[1], r[2], r[3], r[4])
+            outputTable(r[0], r[1], r[2], r[3], r[4])
+        }
+    } catch e {
+        yakit.Warn("ERR: %v", e)
+    }
+}

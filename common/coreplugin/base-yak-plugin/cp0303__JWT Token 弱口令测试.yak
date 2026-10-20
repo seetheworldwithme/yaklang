@@ -1,0 +1,58 @@
+
+// 初始化Yakit插件
+yakit.AutoInitYakit()
+
+// 定义命令行参数
+tokenToCrack = cli.Text("token", cli.setHelp("待测试的JWT token"), cli.setRequired(true))
+passwordDict = cli.FileNames("passwords", cli.setHelp("密码字典文件"))
+
+// 简单的内置字典
+builtinDict = ["password", "123456", "admin", "your-256-bit-secret", "welcome"]
+
+// JWT爆破函数
+func bruteForceJWT(token,passwords) {
+
+    parsedToken, _,err := jwt.Parse(token, "")
+    if (parsedToken == nil){
+        yakit.Info("不是合法的jwt token，请重新输入")
+        return
+    }
+    for password in passwords {
+        // 尝试解析JWT token
+        parsedToken, _, err := jwt.Parse(token, password) 
+
+        // 检查是否解析成功
+        if err == nil && parsedToken.Valid {
+            yakit.Info("找到弱口令: %s", password)
+            return
+        }
+    }
+    yakit.Info("没有找到弱口令")
+}
+
+// 主函数
+func main() {
+    // 检查命令行参数
+    cli.check()
+
+    // 获取密码字典
+    passwords = []
+    if len(passwordDict) > 0 {
+        for _, file := range passwordDict {
+            content, err := io.ReadFile(file)
+            if err != nil {
+                yakit.Error("读取密码字典文件失败: %v", err)
+                return
+            }
+            lines := str.ParseStringToLines(string(content))
+            passwords = append(passwords, lines...)
+        }
+    } else {
+        // 使用内置字典
+        passwords = builtinDict
+    }
+    
+    // JWT爆破
+    bruteForceJWT(tokenToCrack, passwords)
+}
+main()

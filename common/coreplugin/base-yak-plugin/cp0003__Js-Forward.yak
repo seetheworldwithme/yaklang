@@ -1,0 +1,48 @@
+varname = cli.String("varname", cli.setVerboseName("参数名"), cli.setRequired(true), cli.setHelp("要转发的参数名"))
+vartyp = cli.StringSlice("vartyp", cli.setVerboseName("变量类型"), cli.setRequired(true), cli.setSelectOption("字符串", "string"), cli.setSelectOption("Json", "json"))
+yakit_port = cli.Int("yakit_port", cli.setVerboseName("Yakit MITM端口"), cli.setDefault(8083))
+cli.check()
+
+vartyp = vartyp[0]
+
+port = os.GetRandomAvailableTCPPort()
+echo_port = os.GetRandomAvailableTCPPort()
+jsCode = f`var xhr = new XMLHttpRequest();xhr.open('POST', 'http://127.0.0.1:${port}', false);xhr.send(${varname});${varname}=xhr.responseText;`
+if vartyp == "json" {
+    jsCode = f`var xhr = new XMLHttpRequest();xhr.open('POST', 'http://127.0.0.1:${port}', false);xhr.send(JSON.stringify(${varname}));${varname}=JSON.parse(xhr.responseText);`
+}
+yakit.Info("将上述代码复制到找到的加密函数开头,变量定义之后(需要注意的是变量是否为常量,如果是常量则要改成变量)")
+yakit.Code(jsCode)
+// yakit.Code(f`\$.ajax({type:"POST",url:"http://127.0.0.1:${port}",data:${varname},async:false,dataType:"text",success:function(result){${varname}=result}});`)
+getbody = func(req) {
+    r = req.Body
+    body, _ = io.ReadAll(r)
+    return body
+}
+
+go httpserver.Serve("127.0.0.1", echo_port, httpserver.handler(func(w, req) {
+    w.WriteHeader(200)
+    body = getbody(req)
+    if len(body) > 0{
+        w.Write(body)
+    }
+}))
+go httpserver.Serve("127.0.0.1", port, httpserver.handler(func(w, req) {
+    opts = []
+    body = getbody(req)
+    opts.Append(poc.replaceBody(body, false), poc.proxy(f"http://127.0.0.1:${yakit_port}"))
+    rsp, _, err = poc.Post(f`http://127.0.0.1:${echo_port}`, opts...)
+    if err != nil {
+        yakit.Error(err.Error())
+        return
+    }
+    origin = req.Header["Origin"]
+    if len(origin) > 0 {
+        w.Header().Set("Access-Control-Allow-Origin", origin[0])
+    }
+    w.WriteHeader(200)
+    w.Write(rsp.GetBody())
+}))
+
+ch = make(chan any)
+<-ch

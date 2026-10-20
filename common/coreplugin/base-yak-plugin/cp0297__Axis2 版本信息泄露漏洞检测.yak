@@ -1,0 +1,85 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port,path){
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+
+    packet = `GET {{params(path)}}services/Version?getVersion HTTP/1.1
+Host: {{params(target)}}
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: deflate
+Accept-Language: zh-CN,zh;q=0.9
+Cache-Control: no-cache
+Connection: close
+Content-Length: 0
+Dnt: 1
+Pragma: no-cache
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36
+`
+
+    rsp,req,_ = poc.HTTP(packet, 
+    poc.params({"target":addr,"path":path,}),
+    poc.https(isTls),
+    poc.redirectTimes(0),
+    )
+    // dump(rsp)
+    if len(rsp) > 0 {
+        
+        if str.MatchAllOfSubString(rsp, "Hi - the Axis2 version is"){
+            r,_ = re.Compile(`<ns:return>(?s:(.*?))</ns:return>`)
+            res = r.FindStringSubmatch(string(rsp))[1]
+            yakit.Info("%v found Axis2 version info %v", addr,res)
+            risk.NewRisk(
+            addr,risk.title("Axis2 version"),
+            risk.severity("info"),
+            risk.titleVerbose("Axis2 版本信息泄露漏洞"),
+            risk.type("info[Axis2]"),
+            risk.payload(`/services/Version?getVersion`),
+            risk.request(req),
+            risk.response(rsp),
+            risk.details({"version":res})
+        )
+        }
+       
+    }
+
+    return
+}
+
+base_href_path=func(ip,port,base_href_rule){
+    addr = str.HostPort(ip, port)
+    isTls=str.IsTLSServer(addr)
+    packet=`GET / HTTP/1.1
+Host: {{params(addr)}}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36`
+    rsp,req,err=poc.HTTP(
+        packet,
+        poc.https(isTls),
+        poc.params({"addr":addr}),
+        // poc.proxy("http://127.0.0.1:8080")
+        )
+    if re.Match(base_href_rule, rsp){
+        base_href=re.FindSubmatch(rsp, base_href_rule)[1]
+        log.info(f"匹配到路径为${base_href}")
+        return base_href
+    }else{
+        log.info("请确认该站点是否存在axis中间件")
+        os.Exit(0)
+    }
+}
+
+
+handle = func(result /* *fp.MatchResult */) {
+    // handle match result
+    if !result.IsOpen(){
+        return
+    }
+    base_href_rule=`<base href="https?://.*?(/.*?)"`
+    if len(result.Fingerprint.HttpFlows)>0{
+        base_href=base_href_path(result.Target,result.Port,base_href_rule)
+        handleCheck(result.Target,result.Port,base_href)
+    }
+    
+}

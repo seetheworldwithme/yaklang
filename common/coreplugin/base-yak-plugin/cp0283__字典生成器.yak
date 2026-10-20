@@ -1,0 +1,188 @@
+yakit.AutoInitYakit()
+
+# Input your code!
+originRaw := cli.Text("origin", cli.setVerboseName("文本"), cli.setRequired(true))
+origin = str.ParseStringToLines(originRaw)
+
+yearRaw := cli.String("year", cli.setVerboseName("年份后缀"), cli.setDefault("1995-2025"))
+_ret := str.ParseStringToPorts(yearRaw)
+years = make([]string, len(_ret))
+for i, result = range years {
+    years[i] = sprint(_ret[i])
+}
+
+
+// randomCase := cli.Bool("randomCase", cli.setVerboseName("随机大小写"))
+
+
+
+prefix := cli.Text("pass-prefix", cli.setVerboseName("前缀"), cli.setDefault(`web
+@`), cli.setRequired(true))
+suffix := cli.Text("pass-suffix", cli.setVerboseName("后缀"), cli.setRequired(true), cli.setDefault(`123
+!
+!@
+@
+@123
+#
+#123
+_
+$
+.
+123.
+1
+123
+666
+888
+qwerty
+qwe
+q1w2e3
+666666
+888888
+*
+******
+111
+111111`))
+
+prefix = str.ParseStringToLines(prefix)
+suffix = str.ParseStringToLines(suffix)
+
+
+
+filesuffix = cli.Text("filesuffix", cli.setVerboseName("文件后缀"), cli.setDefault(`.txt
+.doc
+.docx
+.xls
+.xlsx
+.ppt
+.pptx
+.pdf
+.jpg
+.jpeg
+.png
+.gif
+.bmp
+.mp3
+.wav
+.mp4
+.avi
+.mov
+.zip
+.rar
+.7z
+.html
+.htm
+.css
+.js
+.json
+.xml
+.sql
+.cpp
+.c
+.java
+.py
+.rb
+.php`))
+filesuffix = str.ParseStringToLines(filesuffix)
+
+enablePrefix = cli.Bool("enable-prefix", cli.setRequired(true), cli.setVerboseName("启用前缀"), cli.setDefault(true))
+enableSuffix = cli.Bool("enable-suffix", cli.setRequired(true), cli.setVerboseName("启用后缀"), cli.setDefault(true))
+enableFileSuffix = cli.Bool("enable-file-suffix", cli.setRequired(true), cli.setVerboseName("文件后缀"))
+enableYear = cli.Bool("enable-year", cli.setVerboseName("Year后缀或分隔"), cli.setRequired(true))
+
+enableMon = cli.Bool("month-short", cli.setVerboseName("月份缩写前缀"), cli.setRequired(true))
+monthPrefix = make([]string, 48)
+for line in str.ParseStringToLines(`Jan
+January
+Feb
+February
+Mar
+March
+Apr
+April
+May
+May
+Jun
+June
+Jul
+July
+Aug
+August
+Sep
+September
+Oct
+October
+Nov
+November
+Dec
+December`) {
+    monthPrefix = append(monthPrefix, line)
+    monthPrefix = append(monthPrefix, line + "@")
+    monthPrefix = append(monthPrefix, line + "#")
+    monthPrefix = append(monthPrefix, line.Lower())
+    monthPrefix = append(monthPrefix, line.Lower() + "@")
+    monthPrefix = append(monthPrefix, line.Lower() + "#")
+}
+
+cli.check()
+
+rawList = make([][]string)
+if enableMon {
+    rawList.Push(monthPrefix)
+}
+
+if enablePrefix {
+    rawList.Push(prefix)
+}
+
+if origin.Len() <= 0 {
+    origin = ["admin", "root", "administrator"]
+}
+
+if origin.Len() > 0 {
+    rawList.Push(origin)
+}
+
+if enableYear {
+    rawList.Push(years)
+}
+
+if enableSuffix {
+    rawList.Push(suffix)
+}
+
+if enableFileSuffix {
+    rawList.Push(filesuffix)
+}
+
+
+results, err := dictutil.Mix(rawList...)
+die(err)
+
+maxCount = 1
+for list in rawList {
+    maxCount *= list.Len()
+}
+
+yakit.StatusCard("执行状态", "正在生成")
+
+if maxCount>0 {
+    yakit.StatusCard("预计字典大小", sprint(maxCount))
+}
+
+yakit.EnableText("生成字典")
+
+txt = ""
+count = 0
+for result in results {
+    count++
+    txt += str.Join(result, "") + "\n"
+    if count % 1000 == 0 {
+        yakit.SetProgress(float(count)/float(maxCount))
+    }
+}
+yakit.SetProgress(0.9)
+defer yakit.SetProgress(1.0)
+
+yakit.TextTabData("生成字典", txt)
+yakit.StatusCard("执行状态", "成功结束")
+

@@ -1,0 +1,58 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+
+   
+    PacketGet = `GET /info HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0
+
+`
+
+    rsp,req,_ = poc.HTTP(PacketGet, 
+    poc.params({"target":addr}),
+    poc.https(isTls),
+    poc.redirectTimes(0),
+    )
+
+    header, body = poc.Split(rsp)
+    rspIns = poc.ParseBytesToHTTPResponse(rsp)~
+    urlIns = str.ExtractURLFromHTTPRequestRaw(req, isTls)~
+    url = urlIns.String()
+    
+    if rspIns.StatusCode == 200 && str.MatchAllOfSubString(header, `json`) && str.MatchAllOfSubString(body, `KernelVersion`,`RegistryConfig`,`DockerRootDir`){
+        yakit.Info("FOUND INFO for %v", `docker-api-unauthorized-rce`)
+            risk.NewRisk(
+                url, risk.severity("high"), 
+                risk.description("Docker API 未经身份验证访问漏洞是一种安全缺陷，允许攻击者在未经过认证的情况下直接访问 Docker 远程 API。这一漏洞主要源于 Docker 配置不当，特别是在未启用安全措施（如 TLS/SSL 加密和身份验证）时。攻击者可以通过暴露的 Docker Socket 进行信息获取、容器管理、系统命令执行等恶意操作，从而对宿主机及其容器环境造成严重威胁。"),
+                risk.solution("为有效应对 Docker API 未经身份验证访问漏洞，建议启用 TLS/SSL 加密以确保安全通信，并实施网络隔离，限制对 Docker 守护进程的访问。此外，应利用 Docker 的身份验证机制和角色权限管理，确保仅授权用户可访问相关资源。定期审计和监控访问日志，有助于及时发现并响应可疑活动。同时，保持 Docker 及其依赖组件的更新，确保系统应用最新的安全补丁，以降低潜在风险。"),
+                risk.title(sprintf("FOUND %v", "docker 未授权")),
+                risk.titleVerbose(sprintf("reference %v", `docker-api-unauthorized-rce`)),
+                risk.type(`unauth-access`),
+                 risk.typeVerbose(`https://github.com/vulhub/vulhub/tree/master/docker/unauthorized-rce`),
+                risk.payload("/info"), risk.details({
+                    "request": req,
+                    "response": rsp,
+                    "url": url,
+                }),
+            )
+        
+    }
+
+    return
+}
+
+handle = func(result /* *fp.MatchResult */) {
+    // handle match result
+    if !result.IsOpen(){
+        return
+    }
+
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+    
+}

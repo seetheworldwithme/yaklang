@@ -1,0 +1,47 @@
+yakit.AutoInitYakit()
+log.setLevel("info") 
+targets = cli.String("targets")
+
+CClass = []string(nil)
+slice := str.ParseStringToLines(targets)
+println(slice)
+//表格函数
+yakit.EnableTable("IP表", ["IP"])
+TableIP = func(ip) {
+    data = make(map[string]var)
+    data["IP"] = ip
+    yakit.TableData("IP表", data)
+}
+yakit.EnableTable("C段表", ["C段", "数量"])
+TableCClass = func(CClass, Count) {
+    data = make(map[string]var)
+    data["C段"] = CClass
+    data["数量"] = Count
+    yakit.TableData("C段表", data)
+}
+
+    for _,target := range slice{
+        host=str.ExtractHost(target)
+        hostStr = str.ParseStringToCClassHosts(host)
+        if str.EndsWith(hostStr,"/24"){
+            CClass=append(CClass,hostStr)
+        }
+    }
+println(CClass)
+CClassstr=str.RemoveRepeat(CClass)
+println(CClassstr)
+for _,value :=range CClassstr{
+    Count = 0
+    for _,v := range CClass{
+        if v == value{
+            Count++
+        }
+    }
+    log.Info("C段:%v 数量:%v",value,Count)
+    yakit.Info("C段:%v 数量:%v",value,Count)
+    TableCClass(value,Count)
+    for _, i = range str.ParseStringToHosts(value) {
+        log.Info("IP:%v",i)
+        TableIP(i)
+    }
+}

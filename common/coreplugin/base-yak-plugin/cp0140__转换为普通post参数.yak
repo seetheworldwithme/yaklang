@@ -1,0 +1,39 @@
+handle = func(origin /*string*/) {
+   // 转换为普通post参数
+
+    _, v = poc.Split(origin)
+    v = string(v)
+
+    MapObjToPostParams = func(mapObj, oldKey) {
+        postResult = ""
+        for k, v in mapObj {
+            if oldKey {
+                k = sprintf("%s[%s]", oldKey, k)
+            }
+            if typeof(v) != map[string]var {
+                postResult += sprintf("%s=%v&", k, v)
+            } else {
+                postResult += MapObjToPostParams(v, k)
+            }
+        }
+        return postResult
+    }
+
+    // 先尝试json
+    mapObj = json.loads(v)
+    if len(mapObj) == 0 {
+        // 再尝试xml
+        mapObj = xml.loads(v)
+        dump(mapObj)
+    }
+
+
+    if len(mapObj) > 0 {
+        // json 转 post
+        result = MapObjToPostParams(mapObj, false)
+        result = result.TrimRight("&")
+        origin = poc.ReplaceBody(origin, result, false)
+        origin = poc.ReplaceHTTPPacketHeader(origin, "Content-Type", "application/x-www-form-urlencoded")
+    }
+    return string(origin)
+}

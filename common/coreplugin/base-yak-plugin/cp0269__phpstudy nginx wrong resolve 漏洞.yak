@@ -1,0 +1,151 @@
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    var url
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    level=["","low","middle","high","critical"]
+    if isTls {
+        url="https://"+addr
+    }else{
+        url="http://"+addr
+    }
+    vulnable=false
+
+    reference="phpstudy nginx wrong resolve 漏洞"
+    severity="未填写"
+    type="漏洞"
+    name = randn(10000000,99999999)
+
+    poc_url_html0= url + `/`+ parseStr(name) +`.php`
+    req_html0, _ := http.NewRequest("GET",poc_url_html0,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_html0)
+    resp_html0, err := http.Do(req_html0)
+    die(err)
+    bresp,_=http.dump(resp_html0)
+    header, body = poc.Split(bresp)
+    html0_flag = false
+    if resp_html0.StatusCode != 200{
+        html0_flag = true
+    }
+
+    poc_url_html1= url + `/index.html`
+    req_html1, _ := http.NewRequest("GET",poc_url_html1,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_html1)
+    resp_html1, err := http.Do(req_html1)
+    die(err)
+    bresp,_=http.dump(resp_html1)
+    header, body = poc.Split(bresp)
+    html1_flag = false
+    if resp_html1.StatusCode == 200 && str.Contains(string(header),"nginx"){
+        html1_flag = true
+    }
+
+    poc_url_html2= url + `/index.html/.php`
+    req_html2, _ := http.NewRequest("GET",poc_url_html2,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_html2)
+    resp_html2, err := http.Do(req_html2)
+    die(err)
+    bresp,_=http.dump(resp_html2)
+    header, body = poc.Split(bresp)
+    html2_flag = false
+    if resp_html2.StatusCode == 200 && str.Contains(string(header),"nginx"){
+        html2_flag = true
+    }
+
+    poc_url_html3= url + `/index.html/.xxx`
+    req_html3, _ := http.NewRequest("GET",poc_url_html3,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_html3)
+    resp_html3, err := http.Do(req_html3)
+    die(err)
+    bresp,_=http.dump(resp_html3)
+    header, body = poc.Split(bresp)
+    html3_flag = false
+    if resp_html3.StatusCode != 200{
+        html3_flag = true
+    }
+
+    poc_url_php0= url + `/`+ parseStr(name) +`.php`
+    req_php0, _ := http.NewRequest("GET",poc_url_php0,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_php0)
+    resp_php0, err := http.Do(req_php0)
+    die(err)
+    bresp,_=http.dump(resp_php0)
+    header, body = poc.Split(bresp)
+    php0_flag = false
+    if resp_php0.StatusCode != 200{
+        php0_flag = true
+    }
+
+    poc_url_php1= url + `/index.php`
+    req_php1, _ := http.NewRequest("GET",poc_url_php1,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_php1)
+    resp_php1, err := http.Do(req_php1)
+    die(err)
+    bresp,_=http.dump(resp_php1)
+    header, body = poc.Split(bresp)
+    php1_flag = false
+    if resp_php1.StatusCode == 200 && str.Contains(string(header),"nginx"){
+        php1_flag = true
+    }
+
+    poc_url_php2= url + `/index.php/.php`
+    req_php2, _ := http.NewRequest("GET",poc_url_php2,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_php2)
+    resp_php2, err := http.Do(req_php2)
+    die(err)
+    bresp,_=http.dump(resp_php2)
+    header, body = poc.Split(bresp)
+    php2_flag = false
+    if resp_php2.StatusCode == 200 && str.Contains(string(header),"nginx"){
+        php2_flag = true
+    }
+
+    poc_url_php3= url + `/index.php/.xxx`
+    req_php3, _ := http.NewRequest("GET",poc_url_php3,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_php3)
+    resp_php3, err := http.Do(req_php3)
+    die(err)
+    bresp,_=http.dump(resp_php3)
+    header, body = poc.Split(bresp)
+    php3_flag = false
+    if resp_php3.StatusCode != 200{
+        php3_flag = true
+    }
+
+    poc_url=poc_url_php3
+    if html0_flag && html1_flag && html2_flag && html3_flag || php0_flag && php1_flag && php2_flag && php3_flag{
+        vulnable = true
+    }
+    if vulnable {
+            yakit.Info("FOUND INFO for %v %v",reference,type)
+            risk.NewRisk(
+                url, risk.severity(severity), 
+                risk.title(sprintf("FOUND %v %v",reference,type)),
+                risk.titleVerbose(sprintf("%v %v",reference,type)),
+                risk.type(type), risk.typeVerbose(type),
+                risk.details({
+                    "request": breq,
+                    "response": bresp,
+                    "url": poc_url,
+                }),
+            )
+        }
+    return
+}
+handle = func(result) {
+    if !result.IsOpen(){
+        return
+    }
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+}

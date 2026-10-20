@@ -1,0 +1,129 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+// 准备发送的报文模版 
+
+PacketPost1 = `POST /_ignition/execute-solution HTTP/1.1
+Host: {{params(target)}}
+Accept: */*
+Accept-Encoding: gzip
+Content-Length: 192
+Content-Type: application/json
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+
+{{params(payload)}}`
+
+PacketPost2 = `POST / HTTP/1.1
+Host: {{params(target)}}
+Accept: */*
+Accept-Encoding: gzip
+Content-Length: 192
+Content-Type: application/json
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+
+{{params(payload)}}`
+
+PacketGET = `GET {{params(payload)}} HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0
+
+`
+
+//漏洞检测规则函数 
+rules = []
+addRule = func(packet,payload, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packet": packet,
+        "payload": payload,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+
+//填充对应的漏洞检测规则
+payload = `{"solution": "Facade\\Ignition\\Solutions\\MakeViewVariableOptionalSolution","parameters": {"variableName": "username","viewFile": "f47c10c5b6057f617f95f12940869972"}}`
+addRule(PacketPost1,payload,func(rsp,header,body){
+    if rsp.StatusCode == 500 &&str.MatchAllOfSubString(body, `f47c10c5b6057f617f95f12940869972`) {
+        return true
+    }
+    return false
+},"RCE","laravel-cve-2021-3129","critical","https://github.com/vulhub/vulhub/blob/master/laravel/CVE-2021-3129")
+
+addRule(PacketPost2,"",func(rsp,header,body){
+    if rsp.StatusCode == 405 &&str.MatchAllOfSubString(body, `MethodNotAllowedHttpException`) && str.MatchAnyOfSubString(body, `vendor\laravel\framework\src\Illuminate\Routing\RouteCollection.php`, `vendor/laravel/framework/src/Illuminate/Routing/RouteCollection.php`) {
+        return true
+    }
+    return false
+},"信息泄露","laravel-debug-info-leak","high","https://github.com/dem0ns/improper/tree/master/laravel/5_debug")
+
+addRule(PacketGET,`/storage/logs/laravel.log`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAnyOfSubString(header, `plain`, `octet-stream`) && str.MatchAnyOfSubString(body, `vendor\laravel\framework`, `vendor/laravel/framework`) && str.MatchAnyOfSubString(body, `stacktrace`, `Stack trace`) {
+        return true
+    }
+    return false
+},"配置不当","laravel-improper-webdir","high","https://github.com/dem0ns/improper")
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+
+        resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}))
+        if err != nil {
+            yakit.Error("poc.HTTP error: %v", err)
+            return
+        }
+        header, body = poc.Split(resp)
+        rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+        urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+        url = urlIns.String()
+        if rule.check(rspIns, header, body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("reference %v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payload), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+            )
+            return
+        }
+        return
+    }
+}
+
+
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+
+    // 漏洞检测
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

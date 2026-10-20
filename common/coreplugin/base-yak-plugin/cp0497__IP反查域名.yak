@@ -1,0 +1,164 @@
+yakit.AutoInitYakit()
+log.setLevel("info")
+
+targetsRaw = cli.String("targets", cli.setRequired(true))
+thread = cli.Int("thread", cli.setDefault(20))
+cli.check()
+
+targets = str.RemoveRepeat(str.ParseStringToLines(targetsRaw))
+if len(targets) == 0 {
+    yakit.Error("no valid targets")
+    return
+}
+
+tableName = "IP反查域名表"
+columnTarget = "target"
+columnDomain = "反查域名"
+columnHistory = "history"
+
+yakit.EnableTable(tableName, [columnTarget, columnDomain, columnHistory])
+
+addTableRow = func(target, domain, historyText) {
+    yakit.TableData(tableName, {
+        columnTarget: target,
+        columnDomain: domain,
+        columnHistory: historyText,
+    })
+}
+
+normalizeIP = func(target) {
+    ipList = re.ExtractIP(target)
+    if len(ipList) == 0 {
+        return ""
+    }
+    return ipList[0]
+}
+
+hasString = func(items, value) {
+    for _, item := range items {
+        if item == value {
+            return true
+        }
+    }
+    return false
+}
+
+extractDomainsFromAizhan = func(ip) {
+    domains = make([]string)
+
+    url = "https://dns.aizhan.com/" + ip + "/"
+    rsp, _, err := poc.Get(
+        url,
+        poc.appendHeader("Referer", "https://dns.aizhan.com/"),
+        poc.appendHeader("User-Agent", "Mozilla/5.0"),
+        poc.timeout(15),
+    )
+    if err != nil {
+        yakit.Error("aizhan request failed for %s: %v", ip, err)
+        return domains
+    }
+
+    doc, err := xpath.LoadHTMLDocument(string(rsp.GetBody()))
+    if err != nil {
+        yakit.Error("aizhan html parse failed for %s: %v", ip, err)
+        return domains
+    }
+
+    for _, node := range xpath.Find(doc, `//div[contains(@class,"dns-content")]//tbody/tr/td[@class="domain"]/a`) {
+        domain = str.TrimSpace(xpath.InnerText(node))
+        if domain == "" || hasString(domains, domain) {
+            continue
+        }
+        domains = append(domains, domain)
+    }
+
+    return domains
+}
+
+extractHistoryFromIP138 = func(ip) {
+    historyDomains = make([]string)
+    historyRanges = make([]string)
+
+    url = "https://site.ip138.com/" + ip + "/"
+    rsp, _, err := poc.Get(
+        url,
+        poc.appendHeader("User-Agent", "Mozilla/5.0"),
+        poc.timeout(15),
+    )
+    if err != nil {
+        yakit.Error("ip138 request failed for %s: %v", ip, err)
+        return historyDomains, historyRanges
+    }
+
+    doc, err := xpath.LoadHTMLDocument(string(rsp.GetBody()))
+    if err != nil {
+        yakit.Error("ip138 html parse failed for %s: %v", ip, err)
+        return historyDomains, historyRanges
+    }
+
+    for _, node := range xpath.Find(doc, `//*[@id="list"]/li[span[@class="date"] and a]`) {
+        dateNodes = xpath.Find(node, `./span[@class="date"]`)
+        linkNodes = xpath.Find(node, `./a`)
+        if len(dateNodes) == 0 || len(linkNodes) == 0 {
+            continue
+        }
+
+        dateText = str.TrimSpace(xpath.InnerText(dateNodes[0]))
+        domainText = str.TrimSpace(xpath.InnerText(linkNodes[0]))
+        if domainText == "" || hasString(historyDomains, domainText) {
+            continue
+        }
+
+        historyDomains = append(historyDomains, domainText)
+        historyRanges = append(historyRanges, dateText)
+    }
+
+    return historyDomains, historyRanges
+}
+
+reverseip = func(target, swg) {
+    swg.Add()
+    go func {
+        defer swg.Done()
+        defer func {
+            err := recover()
+            if err != nil {
+                yakit.Error("reverseip panic for %s: %v", target, err)
+            }
+        }
+
+        ip = normalizeIP(target)
+        if ip == "" {
+            yakit.Error("invalid ip target: %s", target)
+            return
+        }
+
+        historyDomains, historyRanges = extractHistoryFromIP138(ip)
+        if len(historyDomains) > 0 {
+            for index, domain := range historyDomains {
+                historyText = ""
+                if index < len(historyRanges) {
+                    historyText = historyRanges[index]
+                }
+                addTableRow(ip, domain, historyText)
+            }
+            return
+        }
+
+        aizhanDomains = extractDomainsFromAizhan(ip)
+        if len(aizhanDomains) > 0 {
+            for _, domain := range aizhanDomains {
+                addTableRow(ip, domain, "")
+            }
+            return
+        }
+
+        addTableRow(ip, "", "")
+    }
+}
+
+swg = sync.NewSizedWaitGroup(thread)
+for _, target := range targets {
+    reverseip(target, swg)
+}
+swg.Wait()

@@ -1,0 +1,4 @@
+hijackHTTPResponse = func(isHttps, url, rsp, forward, drop) {
+    rsp = poc.ReplaceHTTPPacketHeader(rsp, "Content-Security-Policy", "default-src *")
+    forward(rsp)
+}

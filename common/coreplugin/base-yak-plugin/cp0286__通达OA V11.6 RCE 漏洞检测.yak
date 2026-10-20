@@ -1,0 +1,172 @@
+# port scan plugin
+yakit.AutoInitYakit()
+//loglevel("debug")
+// 准备发送的报文模版 
+PacketGet = `GET {{params(payload)}} HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36`
+
+
+//指纹识别规则  
+fingerprint = "通达OA"
+fingerRules= []
+
+addfingerRule =  func(packet,payload, check) {
+    fingerRules = append(fingerRules, {
+        "packet":packet,
+        "payload": payload,
+        "check": check,
+    })
+}
+
+//添加具体的识别规则
+addfingerRule(PacketGet,"/",func(rsp,header,body){
+    if str.MatchAnyOfSubString(body, `您的电脑可能感染了病毒或木马程序，请联系OA软件开发商寻求解决办法或下载360安全卫士查杀`, `Office Anywhere`, `通达`){
+        return true
+    }
+    return false
+})
+
+//漏洞检测规则函数 
+rules = []
+addRule = func(packets,payloads, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packets": packets,
+        "payloads": payloads,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+//填充对应的漏洞检测规则
+rand_Payload=str.RandStr(10)
+addRule([PacketGet,],[`/module/appbuilder/assets/print.php`,],func(all_rspIns,all_header,all_body){
+    if str.MatchAnyOfSubString(all_header[0], `HTTP/1.1 200`) && str.MatchAllOfSubString(all_body[0], `未知参数`) {
+        return true
+    }
+    return false
+},"RCE","RCE","critical","通达OA V11.6 RCE")
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+        all_rspIns=[]
+        all_header=[]
+        all_body=[]
+        url := ""
+        resp := ""
+        req := ""
+        for n, payload := range rule.payloads  {
+            resp, req, err = poc.HTTP(rule["packets"][n], poc.https(isTls),poc.params({"target": addr, "payload": payload}))
+            if err != nil {
+                yakit.Error("poc.HTTP error: %v", err)
+                return
+            }
+            header, body = poc.Split(resp)
+            rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+            urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+            url = urlIns.String()
+            all_rspIns = append(all_rspIns,rspIns)
+            all_header = append(all_header,header)
+            all_body = append(all_body,body)
+        }
+        
+        if rule.check(all_rspIns, all_header, all_body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("%v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payloads[0]), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+            )
+            return
+        }
+        return
+    }
+}
+
+//指纹识别handle
+handlefingerRule = func(isTls,addr,rule){
+
+    defer func{
+        recover()
+    }
+    resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}))
+    if err != nil {
+        yakit.Error("poc.HTTP error: %v", err)
+        return false
+    }
+
+    header, body = poc.Split(resp)
+    rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+    urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+    url = urlIns.String()
+    if rule.check(rspIns,header,body){
+        yakit.Info("%v detected ",fingerprint)
+        risk.NewRisk(
+            url, risk.severity("low"),
+            risk.title(sprintf("%v detected ",fingerprint)),
+            risk.type("fingerprint Identification"),risk.typeVerbose(fingerprint + " fingerprint Identification"),
+            risk.payload(rule.payload),risk.details({
+                "request": req,
+                "response": resp,
+                "url": url,
+            }),
+        )
+        return true
+    }
+    return false
+
+}
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    //yakit.Info("no http", dump(result.Fingerprint))
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+    fingerHit = false
+    yakit.Info("start to %s fingerprint identification",fingerprint)
+
+    //指纹识别
+    for _, fingerRule = range fingerRules {
+
+        if  handlefingerRule(isTls, addr, fingerRule) {
+            fingerHit = true
+            break
+        }
+    }
+    if !fingerHit {
+        return 
+    }
+
+    //漏洞检测
+    yakit.Info("start to %s vuln identification",fingerprint)
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

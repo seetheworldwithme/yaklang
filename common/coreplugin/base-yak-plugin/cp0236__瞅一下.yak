@@ -1,0 +1,144 @@
+yakit.AutoInitYakit()
+
+//根据域名查询是否使用了CDN
+func checkCDN(domain){
+    resovleIP = []string{}
+    dnsServerList = ["114.114.114.114","223.5.5.5","119.29.29.29","8.8.8.8","61.132.163.68","202.98.192.67","9.9.9.9","203.142.100.18","208.67.222.222","211.138.245.180","211.162.78.1"]
+    for index,dnsserver = range dnsServerList {
+        ip = dns.QueryIP(domain,dns.dnsServers(dnsserver),dns.timeout(1))
+        if ip == ""{
+            break;
+        }
+        if !str.StringSliceContains(resovleIP,ip){
+            resovleIP = append(resovleIP,ip)
+        }
+    }
+    if len(resovleIP) > 1{
+        yakit.StatusCard("存在CDN","是")
+        return true
+    }
+    yakit.StatusCard("存在CDN","否")
+    return false
+}
+
+//根据IP查询归属地
+func GetIPInfo(ip){
+    url = "https://opendata.baidu.com/api.php?query="+ip+"&co=&resource_id=6006&oe=utf8"
+    
+    rsp,err = http.Get(url)
+    if err != nil { die(err) }
+    rspRaw = http.dump(rsp)~
+    headers, body = str.SplitHTTPHeadersAndBodyFromPacket(rspRaw)
+    result = json.loads(string(body))
+    if result["status"] != "0"{
+        yakit.Info("查询IP归属地出错")
+    }else{
+        for k,v = range(result["data"]){
+            yakit.Info(v["location"])
+            yakit.StatusCard("IP归属地",v["location"])
+        }
+    }
+}
+
+//根据IP查询端口开放情况
+func GetOpenPorts(ip){
+    query = "ip:"+ip
+    res, err := spacengine.Query(query, spacengine.maxRecord(50), spacengine.engine("shodan"))
+    die(err)
+    yakit.EnableTable("IP开放端口", ["端口", "Banner"])
+
+    for r := range res {
+        data = make(map[string]var)
+        data["端口"] = r.Addr
+        data["Banner"] = r.Banner
+        yakit.TableData("IP开放端口", data)
+    }
+}
+
+func postRequest(url,data,content_type,token){
+    url = "https://hlwicpfwc.miit.gov.cn/icpproject_query/api/" + url
+    rsp, err := http.Post(
+        url,
+        http.body(data),
+        http.header("Content-Type", content_type),
+        http.header("Origin", "https://beian.miit.gov.cn/"),
+        http.header("Referer", "https://beian.miit.gov.cn/"),
+        http.header("token", token),
+        http.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.87 Safari/537.36"),
+    )
+    die(err)
+    raw, err := io.ReadAll(rsp.Body)
+    die(err)
+    return string(raw)
+
+}
+//根据域名查询备案信息
+func GetBeiAnInfo(domain){
+    defer func{
+        err := recover()
+        if err != nil {
+            yakit.Info("ICP[%v] Query Failed: %v", domain, err)
+        }
+
+    }
+    domain2 = str.Split(domain, ".")
+    domain = str.Join(domain2[1:3],".")
+    timeStamp = sprint(time.Now().Unix())
+    authKey = codec.Md5("testtest"+timeStamp)
+    data = "authKey="+authKey+"&timeStamp="+timeStamp
+    yakit.Info("开始通过域名查询备案信息")
+    resp = postRequest("auth", data, "application/x-www-form-urlencoded;charset=UTF-8", "0")
+    token = json.loads(resp)["params"]["bussiness"]
+    data2 = `{"pageNum":"","pageSize":"","unitName":"`+domain+`"}`
+    query_resp = postRequest("icpAbbreviateInfo/queryByCondition",data2,"application/json;charset=UTF-8",token)
+
+    query_resp_json = json.loads(query_resp)
+
+    // yakit.Info(query_resp)
+
+    yakit.EnableTable(domain, ["域名", "备案号","企业名称","企业性质","限制访问"])
+    data = make(map[string]var)
+    data["域名"] = query_resp_json.params.list[0].domain
+    data["备案号"] = query_resp_json.params.list[0].serviceLicence
+    data["企业名称"] = query_resp_json.params.list[0].unitName
+    data["企业性质"] = query_resp_json.params.list[0].natureName
+    data["限制访问"] = query_resp_json.params.list[0].limitAccess
+    yakit.Output(yakit.TableData(domain, data))
+}
+
+target = cli.String("target", cli.setVerboseName("目标（域名）"), cli.setRequired(true))
+target = str.ExtractHost(target)
+
+cli.check()
+
+if str.IsIPv4(target){
+    yakit.Info("开始查询IP归属地")
+    GetIPInfo(target)
+    yakit.Info("开始查询IP开放端口")
+    GetOpenPorts(target)
+}else{
+    domainList = str.ExtractDomain(target)
+    if len(domainList) <= 0 {
+        yakit.StatusCard("输入错误","无法提取出有效输入")
+        return
+    }
+    target = domainList[0]
+    yakit.Info("探测是否存在CDN")
+    cdnStatus = checkCDN(target)
+    if !cdnStatus{
+        yakit.Info("目标没有使用CDN")
+        ip = dns.QueryIP(target)
+        yakit.Info("目标IP："+ip)
+        yakit.StatusCard("IP地址", ip)
+        yakit.Info("开始查询IP归属地")
+        GetIPInfo(ip)
+        yakit.Info("开始查询IP开放端口")
+        GetOpenPorts(ip)
+        yakit.Info("开始查询域名备案信息")
+        GetBeiAnInfo(target)
+    }else{
+        yakit.Info("目标使用CDN")
+        yakit.Info("开始查询域名备案信息")
+        GetBeiAnInfo(target)
+    }
+}

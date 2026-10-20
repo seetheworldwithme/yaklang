@@ -1,0 +1,28 @@
+handle = func(origin /*string*/) {
+    question = f`Given the following encrypted text snippet, it is suspected that the text may have been encoded multiple times using different methods. Please determine the sequence of encodings used as far as possiable and provide the final plaintext after decoding.
+Do not include any explanations, only provide a  RFC8259 compliant JSON response  following this format without deviation:
+{"cipher":"the ciper text","plain":"the plain text","encoding":"possible encoding, using -> to indicate the process"}\nciper text: \`\`\`${origin}\`\`\`\n\nThe JSON response:`
+    result, err = ai.Chat(question)
+    if err != nil {
+        return "解析失败，错误: %v" % err
+    }
+    n = str.Index(result, "{")
+   if n != -1 {
+        result = result[n:]
+    } else {
+        return "解析失败，响应中未找到有效的JSON格式"
+    }
+    jsons = json.ExtractJSON(result)
+    if len(jsons) > 0 {
+        obj = json.loads(jsons[0])
+        try {
+            plaintext = obj["plain"]
+            encoding = obj["encoding"]
+            return f"编码步骤:${encoding}\n明文:${plaintext}"
+        } catch e {
+            log.Error("[Plugin] [OpenAI] Get response from json error: %v", e)
+        }
+    }
+
+    return "解析失败，请检查是否在全局网络配置中配置了ai key或网络是否存在问题"
+}

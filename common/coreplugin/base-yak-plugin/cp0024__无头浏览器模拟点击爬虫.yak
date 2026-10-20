@@ -1,0 +1,193 @@
+yakit.AutoInitYakit()
+
+targetUrl = cli.String("targetUrl", cli.setHelp("爬虫目标url"),cli.setVerboseName("目标"),cli.setRequired(true))
+wsAddress = cli.String("wsAddress", cli.setHelp("chrome headless运行时的ws地址"),cli.setVerboseName("浏览器ws地址"),cli.setCliGroup("浏览器"))
+exePath = cli.String("exePath", cli.setHelp("chrome浏览器可执行程序的路径"),cli.setVerboseName("浏览器执行程序路径"),cli.setCliGroup("浏览器"))
+proxy = cli.String("proxy", cli.setHelp("代理地址"),cli.setVerboseName("代理地址"),cli.setCliGroup("浏览器"))
+proxyUsername = cli.String("proxyUsername", cli.setHelp("代理用户名"),cli.setVerboseName("代理用户名"),cli.setCliGroup("浏览器"))
+proxyPassword = cli.String("proxyPassword", cli.setHelp("代理密码"),cli.setVerboseName("代理密码"),cli.setCliGroup("浏览器"))
+pageTimeout = cli.Int("pageTimeout", cli.setDefault(30),cli.setHelp("单页面爬虫的最大操作时间，单位秒"),cli.setVerboseName("单页面超时时间"),cli.setCliGroup("爬虫参数"))
+fullTimeout = cli.Int("fullTimeout", cli.setDefault(1800),cli.setHelp("整个爬虫运行的超时时间 单位秒"),cli.setVerboseName("全局超时时间"),cli.setCliGroup("爬虫参数"))
+formFill = cli.String("formFill", cli.setDefault("username:admin;password:admin"),cli.setHelp("key和value用英文冒号隔开，不同组数据用英文分号隔开"),cli.setVerboseName("表单填写"),cli.setCliGroup("爬虫参数"))
+fileUpload = cli.String("fileUpload", cli.setDefault("default:/opt/defaultFile.txt;"),cli.setHelp("key（关键词）和value（文件路径）用英文冒号隔开，不同组数据用英文分号隔开\nkey为default时value为默认上传文件路径"),cli.setVerboseName("文件输入"),cli.setCliGroup("爬虫参数"))
+header = cli.String("header", cli.setHelp("header名和header值用英文冒号隔开，不同组数据用英文分号隔开"),cli.setCliGroup("爬虫参数"))
+cookie = cli.String("cookie", cli.setHelp("cookie名和cookie值用英文冒号隔开，不同组数据用英文分号隔开"),cli.setCliGroup("爬虫参数"))
+scanRange = cli.StringSlice("scanRange", 
+    cli.setMultipleSelect(false),
+    cli.setSelectOption("全域名扫描", "AllDomainScan"),
+    cli.setSelectOption("子域名扫描", "SubMenuScan"),
+    cli.setSelectOption("无域名限制扫描", "UnlimitedScan"),
+    cli.setVerboseName("扫描范围"),
+    cli.setCliGroup("爬虫参数"),
+    cli.setDefault("AllDomainScan")
+)
+scanRepeat = cli.StringSlice("scanRepeat", cli.setMultipleSelect(false),cli.setSelectOption("ExtremeRepeatLevel", "ExtremeRepeatLevel"),cli.setSelectOption("HighRepeatLevel", "HighRepeatLevel"),cli.setSelectOption("MediumRepeatLevel", "MediumRepeatLevel"),cli.setSelectOption("LowRepeatLevel", "LowRepeatLevel"),cli.setSelectOption("UnLimitRepeat", "UnLimitRepeat"),cli.setVerboseName("url去重级别"),cli.setCliGroup("爬虫参数"),cli.setDefault("LowRepeatLevel"))
+maxUrl = cli.Int("maxUrl", cli.setVerboseName("最大url数量"),cli.setCliGroup("爬虫参数"))
+maxDepth = cli.Int("maxDepth", cli.setVerboseName("最大爬虫深度"),cli.setCliGroup("爬虫参数"))
+ignoreQuery = cli.String("ignoreQuery", cli.setHelp("url去重检测时忽略的query-name 以英文逗号隔开"),cli.setVerboseName("忽略参数名"),cli.setCliGroup("爬虫参数"))
+extraWaitLoad = cli.Int("extraWaitLoad", cli.setHelp("页面加载的额外等待时间 单位毫秒"),cli.setVerboseName("额外等待时间"),cli.setCliGroup("爬虫参数"))
+
+blacklist = cli.String("blacklist", cli.setHelp("url黑名单，以英文逗号隔开"),cli.setVerboseName("url黑名单"),cli.setCliGroup("爬虫参数"))
+whitelist = cli.String("whitelist", cli.setHelp("url白名单，以英文逗号隔开"),cli.setVerboseName("url白名单"),cli.setCliGroup("爬虫参数"))
+sensitiveWords = cli.String("sensitiveWords", cli.setHelp("当设置敏感词时，对应待操作元素innerHTml中存在该词汇则不会进行操作\n不同词之间用英文逗号隔开"),cli.setVerboseName("敏感词"),cli.setCliGroup("爬虫参数"))
+leakless = cli.StringSlice("leakless", cli.setMultipleSelect(false),cli.setSelectOption("default", "default"),cli.setSelectOption("true", "true"),cli.setSelectOption("false", "false"),cli.setHelp("浏览器自动进程关闭进行在windows下会报病毒 默认在windows下会关闭\n当关闭时 如果强制关闭爬虫进程时chrome.exe会存在后台 过多时需要手动进行关闭"),cli.setVerboseName("浏览器进程自动关闭"),cli.setCliGroup("其他参数"),cli.setDefault("default"))
+concurrent = cli.Int("concurrent", cli.setDefault(3),cli.setVerboseName("浏览器同时打开页面数量"),cli.setCliGroup("爬虫参数"))
+rawHeaders = cli.Text("rawHeaders", cli.setHelp("数据包中原始headers文本块"),cli.setCliGroup("爬虫参数"))
+rawCookie = cli.Text("rawCookie", cli.setHelp("数据包中原始cookie文本块"),cli.setCliGroup("爬虫参数"))
+cli.check()
+
+func stringToDict(tempStr) {
+    result = make(map[string]string, 0)
+    items = tempStr.Split(";")
+    for _, item := range items {
+        if item.Contains(":") {
+            kv := item.Split(":")
+            result[kv[0]] = kv[1]
+        }
+    }
+    return result
+}
+
+host = ""
+if targetUrl.Contains("://") {
+    host = targetUrl.Split("://")[1]
+} else {
+    host = targetUrl
+}
+host = host.Split("/")[0]
+
+scanRangeMap = {
+    "AllDomainScan": crawlerx.AllDomainScan,
+    "SubMenuScan": crawlerx.SubMenuScan,
+    "UnlimitedScan": crawlerx.UnlimitedDomainScan,
+}
+
+scanRepeatMap = {
+    "UnLimitRepeat": crawlerx.UnLimitRepeat,
+    "LowRepeatLevel": crawlerx.LowRepeatLevel,
+    "MediumRepeatLevel": crawlerx.MediumRepeatLevel,
+    "HighRepeatLevel": crawlerx.HighRepeatLevel,
+    "ExtremeRepeatLevel": crawlerx.ExtremeRepeatLevel,
+}
+
+browserInfo = {
+    "ws_address":"",
+    "exe_path":"",
+    "proxy_address":"",
+    "proxy_username":"",
+    "proxy_password":"",
+}
+if wsAddress != "" {
+    browserInfo["ws_address"] = wsAddress
+}
+if exePath != "" {
+    browserInfo["exe_path"] = exePath
+}
+if proxy != "" {
+    browserInfo["proxy_address"] = proxy
+    if proxyUsername != "" {
+        browserInfo["proxy_username"] = proxyUsername
+        browserInfo["proxy_password"] = proxyPassword
+    }
+}
+browserInfoOpt = crawlerx.browserInfo(json.dumps(browserInfo))
+
+pageTimeoutOpt = crawlerx.pageTimeout(pageTimeout)
+
+fullTimeoutOpt = crawlerx.fullTimeout(fullTimeout)
+
+concurrentOpt = crawlerx.concurrent(concurrent)
+
+opts = [
+    browserInfoOpt,
+    pageTimeoutOpt,
+    fullTimeoutOpt,
+    concurrentOpt,
+    crawlerx.sourceType("plugin"),
+    crawlerx.fromPlugin("headless_crawlerx"),
+    crawlerx.saveToDB(true),
+]
+
+if formFill != "" {
+    formFillInfo = stringToDict(formFill)
+    formFillOpt = crawlerx.formFill(formFillInfo)
+    opts = append(opts, formFillOpt)
+}
+
+if fileUpload != "" {
+    fileUploadInfo = stringToDict(fileUpload)
+    fileUploadOpt = crawlerx.fileInput(fileUploadInfo)
+    opts = append(opts, fileUploadOpt)
+}
+
+if header != "" {
+    headerInfo = stringToDict(header)
+    headerOpt = crawlerx.headers(headerInfo)
+    opts = append(opts, headerOpt)
+}
+
+if rawHeaders != "" {
+    opts = append(opts, crawlerx.rawHeaders(rawHeaders))
+}
+
+if rawCookie != "" {
+    opts = append(opts, crawlerx.rawCookie(host, rawCookie))
+}
+
+if cookie != "" {
+    cookieInfo = stringToDict(cookie)
+    cookieOpt = crawlerx.cookies(host, cookieInfo)
+    opts = append(opts, cookieOpt)
+}
+
+scanRangeStr = scanRange[0]
+if scanRangeStr != "" {
+    scanRangeItem = scanRangeMap[scanRangeStr]
+    scanRangeOpt = crawlerx.scanRangeLevel(scanRangeItem)
+    opts = append(opts, scanRangeOpt)
+}
+
+scanRepeatStr = scanRepeat[0]
+if scanRepeatStr != "" {
+    scanRepeatItem = scanRepeatMap[scanRepeatStr]
+    scanRepeatOpt = crawlerx.scanRepeatLevel(scanRepeatItem)
+    opts = append(opts, scanRepeatOpt)
+}
+
+if maxUrl != 0 {
+    opts = append(opts, crawlerx.maxUrl(maxUrl))
+}
+
+if maxDepth != 0 {
+    opts = append(opts, crawlerx.maxDepth(maxDepth))
+}
+
+if extraWaitLoad != 0 {
+    opts = append(opts, crawlerx.extraWaitLoadTime(extraWaitLoad))
+}
+
+if ignoreQuery != "" {
+    opts = append(opts, crawlerx.ignoreQueryName(ignoreQuery.Split(",")...))
+}
+
+if blacklist != "" {
+    opts = append(opts, crawlerx.blacklist(blacklist.Split(",")...))
+}
+
+if whitelist != "" {
+    opts = append(opts, crawlerx.whitelist(whitelist.Split(",")...))
+}
+
+if sensitiveWords != "" {
+    opts = append(opts, crawlerx.sensitiveWords(sensitiveWords.Split(",")))
+}
+
+leaklessStr = leakless[0]
+if leaklessStr != "" {
+    opts = append(opts, crawlerx.leakless(leaklessStr))
+}
+
+ch = crawlerx.StartCrawler(targetUrl, opts...)~
+for item = range ch{
+    yakit.Info(item.Method() + " " + item.Url())
+}

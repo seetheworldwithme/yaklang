@@ -1,0 +1,10 @@
+
+hijackHTTPRequest = func(isHttps, url, req, forward /* func(modifiedRequest []byte) */, drop /* func() */) {
+    header, body = poc.Split(req)
+    if len(body) > 0 {
+        req = poc.HTTPPacketForceChunked(req)
+        forward(req)
+    } else {
+        forward(req)
+    }
+}

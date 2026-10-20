@@ -1,0 +1,23 @@
+# codec plugin
+
+/*
+Codec Plugin 可以支持在 Codec 中自定义编码解码，自定义 Bypass 与字符串处理函数
+
+函数定义非常简单
+
+func(i: string) string
+*/
+
+handle = func(origin /*string*/) {
+
+    origin = codec.StrconvQuote(origin)
+    data = str.f(`{"language":"php","files":[{"name":"main.php","content":%v}]}`, origin)
+
+    rsp, err = http.Post("https://www.lddgo.net/api/RunCode", http.header("Accept", "application/json, text/javascript, */*; q=0.01"), http.header("Content-Type", "application/json;charset=UTF-8"), http.header(`User-Agent`, `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36`), http.body(data))
+    rspraw, rawerr = http.dump(rsp)
+    header, body = str.SplitHTTPHeadersAndBodyFromPacket(rspraw)
+    report = json.loads(body)
+
+    return report["data"]["stdout"]
+    
+}

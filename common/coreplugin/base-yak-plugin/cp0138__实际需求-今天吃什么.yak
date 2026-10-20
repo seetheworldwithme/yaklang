@@ -1,0 +1,7 @@
+yakit.AutoInitYakit()
+
+# Input your code!
+
+menu = ["冒菜","海南鸡饭","悟粉","金百味","重庆小面","饺子","裕香源","猪脚饭","尚品佳味","原牛道","蒸菜","尊宝披萨","臻食荟","五谷渔粉","铁板烧","树底烧腊"]
+
+yakit.StatusCard(`今天吃什么`,menu[randn(0,len(menu))])

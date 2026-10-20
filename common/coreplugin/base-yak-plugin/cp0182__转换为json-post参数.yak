@@ -1,0 +1,55 @@
+handle = func(origin /*string*/) {
+   // 转换为json-post参数
+   c = re.Compile(`^([^\[\]]+)(\[.*?\])$`)~
+
+    _, v = poc.Split(origin)
+    v = string(v)
+
+    parseCommonPostParam = func(v) {
+        results = make(map[string]var)
+        // post 转 json
+        kvs = v.Split("&")
+        for kv in kvs {
+            temp = kv.SplitN("=", 2)
+            if len(temp) < 2 {
+                continue
+            }
+            key, value = temp[0], temp[1]
+            tempKeys = c.FindStringSubmatch(key)
+            if len(tempKeys) > 0 {
+                key = tempKeys[1]
+                temp := tempKeys[2]
+                temp = temp.Trim("[]")
+                temp = temp.Split("][")
+                if key not in results {
+                    results[key] = make(map[string]var)
+                }
+                v = results[key]
+                for t in temp[:-1] {
+                    v[t] =  make(map[string]var)
+                    v = v[t]
+                }
+                v[temp[-1]] = value
+            } else {
+                results[key] = value
+            }
+        }
+        return results
+    }
+
+    // 先尝试xml
+    mapObj = xml.loads(v)
+    if len(mapObj) == 0 {
+        // 再尝试普通参数
+        mapObj = parseCommonPostParam(v)
+    }
+    if len(mapObj) == 0 {
+        mapObj == json.loads(v)
+    }
+    
+    if len(mapObj) > 0 {
+        origin = poc.ReplaceBody(origin, json.dumps(mapObj), false)
+        origin = poc.ReplaceHTTPPacketHeader(origin, "Content-Type", "application/json")
+    }
+    return string(origin)
+}

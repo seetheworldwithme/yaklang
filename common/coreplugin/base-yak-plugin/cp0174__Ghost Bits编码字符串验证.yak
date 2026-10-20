@@ -1,0 +1,156 @@
+// GhostBits 验证器
+// 类型: yak
+// 功能: 验证 Ghost Bits 编码后的字符串是否能正确截断回原始 ASCII
+//
+// 用法:
+//   yak GhostBits_Verifier.yak --original "union select" --encoded "乵乮乩孯汮"
+//   yak GhostBits_Verifier.yak -o ".%u002e" -e "阮严灵丰丰甲来"
+
+__TYPE__ = "yak"
+__DESC__ = "GhostBits 验证器：验证 Ghost Bits 编码后的 Unicode 字符串是否正确截断回原始 ASCII。逐字符比对，输出完整验证报告。"
+__VERBOSE_NAME__ = "GhostBits 验证器"
+__KEYWORDS__ = "ghostbits,verify,unicode,truncation,waf bypass"
+
+original = cli.String(
+    "original",
+    cli.setRequired(true),
+    cli.setVerboseName("原始文本"),
+    cli.setShortName("o"),
+    cli.setHelp("编码前的原始 ASCII 文本。"),
+)
+
+encoded = cli.String(
+    "encoded",
+    cli.setRequired(true),
+    cli.setVerboseName("编码后文本"),
+    cli.setShortName("e"),
+    cli.setHelp("Ghost Bits 编码后的 Unicode 文本。"),
+)
+
+cli.check()
+
+// ---------- 验证逻辑 ----------
+
+verifyGhostBits = func(orig, enc) {
+    origRunes = []
+    for _, r = range orig { origRunes = append(origRunes, r) }
+
+    encRunes = []
+    for _, r = range enc { encRunes = append(encRunes, r) }
+
+    recoveredBytes = []
+    recoveredText = ""
+    for _, r = range encRunes {
+        truncatedByte = ord(r) & 0xFF
+        recoveredBytes = append(recoveredBytes, truncatedByte)
+        recoveredText += chr(truncatedByte)
+    }
+
+    origHex = codec.EncodeToHex(orig)
+    encUtf8Hex = codec.EncodeToHex(enc)
+    recoveredHex = codec.EncodeToHex(recoveredText)
+
+    lines = []
+    lines = append(lines, "╔══════════════════════════════════════════════════════════════╗")
+    lines = append(lines, "║                 Ghost Bits 编码验证报告                      ║")
+    lines = append(lines, "╚══════════════════════════════════════════════════════════════╝")
+    lines = append(lines, "")
+    lines = append(lines, sprintf("  原始文本：%s", orig))
+    lines = append(lines, sprintf("  编码文本：%s", enc))
+    lines = append(lines, sprintf("  原始长度：%d 字符", len(origRunes)))
+    lines = append(lines, sprintf("  编码长度：%d 字符", len(encRunes)))
+    lines = append(lines, sprintf("  原始 HEX：%s", origHex))
+    lines = append(lines, sprintf("  编码文本 UTF-8 HEX：%s", encUtf8Hex))
+    lines = append(lines, sprintf("  截断恢复文本：%s", recoveredText))
+    lines = append(lines, sprintf("  截断恢复 HEX：%s", recoveredHex))
+    lines = append(lines, "")
+    lines = append(lines, "  序号    原始字符    原始HEX   编码字符      Unicode     截断后    HEX    结果")
+    lines = append(lines, "  ─────────────────────────────────────────────────────────────────────────")
+
+    maxLen = len(origRunes)
+    if len(encRunes) > maxLen { maxLen = len(encRunes) }
+
+    allPass = true
+    for i = 0; i < maxLen; i++ {
+        var origChar, encChar, truncated, status, statusIcon
+
+        if i < len(origRunes) {
+            origChar = origRunes[i]
+        } else {
+            origChar = "（缺失）"
+        }
+
+        truncatedHex = "--"
+        origHexByte = "--"
+        if i < len(origRunes) {
+            origHexByte = codec.EncodeToHex(string(origChar))
+        }
+
+        if i < len(encRunes) {
+            encChar = encRunes[i]
+            cp = ord(encChar)
+            truncatedByte = cp & 0xFF
+            truncated = chr(truncatedByte)
+            truncatedHex = sprintf("%02x", truncatedByte)
+
+            if truncated == origChar {
+                status = "通过"
+                statusIcon = "✅"
+            } else {
+                status = "错误"
+                statusIcon = "❌"
+                allPass = false
+            }
+        } else {
+            encChar = "（缺失）"
+            truncated = "（无）"
+            status = "缺失"
+            statusIcon = "❌"
+            allPass = false
+        }
+
+        // 格式化输出
+        origDisp = origChar
+        encDisp = encChar
+        if len(origDisp) > 6 { origDisp = origDisp[:6] }
+        if len(encDisp) > 6 { encDisp = encDisp[:6] }
+
+        if i < len(encRunes) {
+            lines = append(lines, sprintf("  %-4d    %-8s    %-8s  %-8s      U+%04X      %-8s  %-4s  %s %s",
+                i+1, origDisp, origHexByte, encDisp, ord(encChar), truncated, truncatedHex, statusIcon, status))
+        } else {
+            lines = append(lines, sprintf("  %-4d    %-8s    %-8s  %-8s      （无）        %-8s  %-4s  %s %s",
+                i+1, origDisp, origHexByte, encDisp, truncated, truncatedHex, statusIcon, status))
+        }
+    }
+
+    lines = append(lines, "  ─────────────────────────────────────────────────────────────────────────")
+    lines = append(lines, "")
+
+    if allPass {
+        lines = append(lines, "  ✅ 结论：全部验证通过。编码后的每个 Unicode 字符截断后都正确还原为原始 ASCII。")
+        lines = append(lines, "")
+        lines = append(lines, "  可以安全地将此编码结果用于 WebFuzzer 发送。")
+    } else {
+        lines = append(lines, "  ❌ 结论：验证未通过。存在以下问题：")
+        if len(encRunes) > len(origRunes) {
+            lines = append(lines, sprintf("     · 编码文本比原始文本多了 %d 个字符", len(encRunes)-len(origRunes)))
+        }
+        if len(encRunes) < len(origRunes) {
+            lines = append(lines, sprintf("     · 编码文本比原始文本少了 %d 个字符", len(origRunes)-len(encRunes)))
+        }
+        lines = append(lines, "     · 请检查编码逻辑或 highByte 设置是否正确。")
+    }
+
+    lines = append(lines, "")
+    return str.Join(lines, "\n")
+}
+
+// ---------- 执行 ----------
+
+result = verifyGhostBits(original, encoded)
+// 使用 yakit.Info 逐行输出，确保 Yakit 前端日志可见
+resultLines = str.Split(result, "\n")
+for _, line = range resultLines {
+    yakit.Info(line)
+}

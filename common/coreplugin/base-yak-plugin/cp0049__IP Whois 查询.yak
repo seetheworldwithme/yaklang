@@ -1,0 +1,32 @@
+yakit.AutoInitYakit()
+
+ip = cli.String("ip")
+url = str.f("http://ip.yqie.com/ipwhois.aspx?searchword=%v", ip)
+
+rsp, err = http.Get(url, http.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36"))
+if err != nil {
+    yakit.Error(string(err))
+    return
+}
+rspraw, dumperr = http.dump(rsp)
+if dumperr != nil {
+    yakit.Error(string(dumperr))
+    return
+}
+header, body = str.SplitHTTPHeadersAndBodyFromPacket(rspraw)
+
+script, xerr = xpath.LoadHTMLDocument(body)
+if xerr != nil {
+    yakit.Error(string(xerr))
+    return
+}
+atob = xpath.FindOne(script, `//*[@id="page"]/div[8]/div[3]/script`)
+b = xpath.InnerText(atob)[28:]
+i = len(b) - 4
+index = b[:i]
+breport, xrerr = codec.DecodeBase64(index)
+
+report = re.ReplaceAll(string(breport), "<br />", "\r\n")
+yakit.Text(report)
+
+

@@ -1,0 +1,10 @@
+
+
+fuzztag = cli.String("fuzztag", cli.setRequired(true))
+cli.check()
+yakit.EnableTable("fuzztag生成表格", ["data"])
+fuzztag = fuzz.Strings(fuzztag)
+for v in fuzztag {
+    yakit.TableData("fuzztag生成表格", {"data": v})
+}
+

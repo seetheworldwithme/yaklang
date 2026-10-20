@@ -1,0 +1,55 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+checkIfExist = func(target,directory,path){
+    randomPath = str.RandStr(8)
+    originUrl = target+directory+randomPath
+    toCheckUrl = target+directory+path
+    
+    //要检查的url的返回原始包
+    toCheckRsp,err = http.Get(toCheckUrl)
+    die(err)
+    //如果返回包是404，直接断定不存在
+    if (toCheckRsp.StatusCode==404){
+        return false
+    }
+    toCheckRspBytes,err = http.dump(toCheckRsp)
+
+
+    // 随机404的数据包内容
+    originRsp,err = http.Get(originUrl)
+    die(err)
+    originRspBytes,err = http.dump(originRsp)
+
+
+    // 计算相似度
+    Similarity, err = str.CalcTextMaxSubStrStability(originRspBytes, toCheckRspBytes)
+    die(err)
+
+    if Similarity>0.9 {
+        return false
+    }else{
+        return true
+    }
+}
+
+addr = cli.String("target")
+
+if checkIfExist(addr,"/api/","client_upload_file.json?mid=202cb962ac59075b964b07152d234b10&md5=88aca4dfc84d8abd8c2b01a572d60339"){
+
+        yakit.Info("%v found 360 TianQing RCE Vulnerability ", addr)
+        risk.NewRisk(
+            addr,risk.title("360天擎远程代码执行漏洞"),
+            risk.severity("high"),
+            risk.titleVerbose("360天擎远程代码执行漏洞"),
+            risk.type("RCE[360 TianQing]"),
+            risk.payload(`/api/client_upload_file.json?mid=202cb962ac59075b964b07152d234b10&md5=88aca4dfc84d8abd8c2b01a572d60339`),
+            risk.details({
+                "target":addr,
+                "request":addr+"/api/client_upload_file.json?mid=202cb962ac59075b964b07152d234b10&md5=88aca4dfc84d8abd8c2b01a572d60339",
+                "response":"",
+            }),
+    )
+
+}
+

@@ -1,0 +1,9 @@
+hijackHTTPRequest = func(isHttps, url, req, forward /*func(modifiedRequest []byte)*/, drop /*func()*/) {
+    req = poc.DeleteHTTPPacketHeader(req, "If-Modified-Since")
+    req = poc.DeleteHTTPPacketHeader(req, "If-None-Match")
+    req = poc.DeleteHTTPPacketHeader(req, "Cache-Control")
+    req = poc.DeleteHTTPPacketHeader(req, "if-modified-since")
+    req = poc.DeleteHTTPPacketHeader(req, "if-none-match")
+    req = poc.DeleteHTTPPacketHeader(req, "cache-control")
+    forward(req)
+}

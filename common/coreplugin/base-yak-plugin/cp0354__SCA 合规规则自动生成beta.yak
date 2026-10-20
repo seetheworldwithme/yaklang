@@ -1,0 +1,84 @@
+product =  cli.String("product",cli.setRequired(true),cli.setVerboseName("产品名"))
+cli.check()
+
+matchToVersionRange = func(match, wantproduct) {
+    /*
+    如果cpe_match的CPEuri有指定的版本，那么则代表其对应的版本是一个特定的指定版本。
+    若未指定版本则依据其他的versionStartExcluding等数据划定一个版本范围。
+    */
+    cpeArray = str.Split(match["cpe23Uri"], ":")
+    if len(cpeArray) < 6 {
+        return
+    }
+
+    if cpeArray[4] != wantproduct {
+        return
+    }
+
+    version = cpeArray[5]
+    if version != "*"{
+        return f"[${version},${version}]"
+    }
+
+    versionStart = ""
+    startBoundary = "("
+    versionEnd = ""
+    endBounday = ")"
+    if match["versionStartExcluding"] != "" {
+        versionStart = match["versionStartExcluding"]
+    }else if match["versionStartIncluding"] != "" {
+        versionStart = match["versionStartIncluding"]
+        startBoundary = '['
+    }
+
+    if match["versionEndExcluding"] != "" {
+        versionEnd = match["versionEndExcluding"]
+    }else if match["versionEndIncluding"] != "" {
+        versionEnd = match["versionEndIncluding"]
+        endBounday = "]"
+    }
+        
+    return f"${startBoundary}${versionStart},${versionEnd}${endBounday}"
+
+}
+
+cveInfoToAlert = func (cveInfo) {
+    serverity = str.ToLower(cveInfo.Severity)
+    return f`{
+    title: 'CVE Compliance Check ${cveInfo.CVE}',
+    cve: "${cveInfo.CVE}"
+    level: ${serverity},
+}
+`
+}
+
+
+rule = f"__dependency__.*${product}.version as \$ver;\n"
+
+for i in cve.QueryEx(cve.product(product)){
+
+    alertMessage = cveInfoToAlert(i)
+    versionRangeList = []
+    
+    cpeMap =json.loads(i.CPEConfigurations)
+    for node in cpeMap["nodes"] {
+        for match in node["cpe_match"] {
+            versionRange = matchToVersionRange(match, product)
+            if versionRange != "" {
+                versionRangeList = append(versionRangeList, versionRange)
+            }
+        }
+    }
+
+    if len(versionRangeList) < 1  {
+        continue
+    }
+    versionCollect = str.Join(versionRangeList, " || ")
+
+    alertVerName := "$"+str.Replace(i.CVE, "-", "_", -1)
+    rule +=f`\$ver in ${versionCollect} as ${alertVerName} 
+alert ${alertVerName} for ${alertMessage}
+`
+}
+
+yakit.Text(rule)

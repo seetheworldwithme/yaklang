@@ -1,0 +1,39 @@
+yakit.AutoInitYakit()
+
+data = `GET /search?q=%E9%BB%84%E5%8E%86 HTTP/1.1
+Host: cn.bing.com
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate, br
+Accept-Language: zh-CN,zh;q=0.9
+Cache-Control: max-age=0
+Cookie: _EDGE_V=1; MUID=109231C9051A60863E22206E04C8618D; MUIDB=109231C9051A60863E22206E04C8618D; SRCHD=AF=NOFORM; SRCHUID=V=2&GUID=694B0C776DAF4A239F32A266F6D7595C&dmnchg=1; _tarLang=default=zh-Hans; _TTSS_OUT=hist=WyJ6aC1IYW5zIl0=; PPLState=1; MUIDV=NU=1; _ITAB=STAB=TR; imgv=flts=20220622; ANON=A=A2B7F422B234283BCC539537FFFFFFFF&E=1b42&W=1; KievRPSSecAuth=FADqAxRaTOJILtFsMkpLVWSG6AN6C/svRwNmAAAEgAAACKwDQRNUugGOqAN1Yv3EhMBicGDBeTiahl51nfv/P2cXB4vrdahsAX+Z6L/0wq1UpBpQNP20wGBcLjh6fiu8rO7rOs+e6uS/wohqjZ1EQVw6TxGEBFAy17lTP6iCbEy2MT5Q2HnVaqAssjaGzucrgZJRIGIJGmq0GaNYo096a8hqFVZA86lkjA9gT1BYoRBedw7D70tKo7eYwZTsSlqZGJkRnlRCFf4RSHhFh734QzJpzGAjEO0lSVmrNi2df/wKU69NzNvXuCvrSOGgGRRNz7PbEFTDl3JcZGqf0+gVvwkuk9E4Mcels+JqTGeW1lMfovtXrVQfndgV+eslI+2yyJy5TsfBsMTnEqnhOOdXOnARviOhdW4SZZT2NDFg6+gjwPf7CL7lE8sq7UtGFh+8DkLGmXMT0J7pgMtonDbOZBsaT+UW3NbaZYOA4dKV50wKc6+uPivKLaZ79DVoPSGvGZeibz8o0DLC4B257tRrKYEamI1D24LDEazDXUYsPkYytBJZdPmbnUQyNjCLmQq+VF50HU7kRpi1lxd28klbSdhdoQqJ33RZpeH9AVMtjty1yOlBsI9vIW86lguqfaiX7oPhsQ2ewTrT5gVByHTHZOrXAf1aE1ltEt3bKCublPEblVn8h/pHOgShCLRifBbxtyHsQsNOw1rZ7IWhPEzhXprIQdRzbzqIc/e/3xbIE3U4DAWcx6OJjbBabXu19xO2JgiEsrACMKMGQ6d6oaU/07umcKdbYfP1oq2CApYLFSTAnGEibSCQVQOVpeDS/hxc45iebVasI8Wb0uk85qO1XvlMF+jOOy+zX/dZ4sgGqUMCpf8EGwTX/TpNWBV5pLXIlXtkRStS0gUuqMZk+RCb4qOgNGKqCvhE0YZZO66tGuR8SjhXaArQp6vjFaisVwpYZCx1enPrLHsl03j+h2neP4aeTcIWlouSTwq7kraXqHw0eZtIKIGL3wfCkOuhqmtXvgjRqQF5MeNahJqBTcGihifLC3aBlFXHtmpz/215FLQho6EbvSszVjZNFc7RUJb9GIRbmh6K2t2ewAiAb8/bk/MZv264fBACaXKfVKikcF1noZKfF0nXKqT2tBX1aHI4qAvi3EOwt6w6osO0DPyi8WTaGmI1ca2v7DXNCD5b9n9L2bF3epSniMGg3hmXIb9/8V3BTNxOuPUyI+8shKSdVOQj3KsgAw4JTvg5K6sJ4+g/q7wK6LvMn49GlC0h19MzrJt4UBTuSOnkOGTVqH4+NwAMpgwUAJtKQMgRkn3LnrN9Ts6qbeG+4vq1; _EDGE_S=SID=2BAF5BA053856B9F2A7E49B052E36A8C; _SS=SID=2BAF5BA053856B9F2A7E49B052E36A8C&PC=U316; SRCHS=PC=U316; _UR=QS=0&TQS=0&OMD=13306495181; _TTSS_IN=hist=WyJkZSIsImVuIiwiZnIiLCJhdXRvLWRldGVjdCJd; _clck=16y7uvs|1|f4m|0; ZHCHATSTRONGATTRACT=TRUE; _HPVN=CS=eyJQbiI6eyJDbiI6MTAwLCJTdCI6MiwiUXMiOjAsIlByb2QiOiJQIn0sIlNjIjp7IkNuIjoxMDAsIlN0IjowLCJRcyI6MCwiUHJvZCI6IkgifSwiUXoiOnsiQ24iOjEwMCwiU3QiOjEsIlFzIjowLCJQcm9kIjoiVCJ9LCJBcCI6dHJ1ZSwiTXV0ZSI6dHJ1ZSwiTGFkIjoiMjAyMi0wOS0wNlQwMDowMDowMFoiLCJJb3RkIjowLCJHd2IiOjAsIkRmdCI6bnVsbCwiTXZzIjowLCJGbHQiOjAsIkltcCI6MTgxOX0=; ABDEF=V=13&ABDV=11&MRNB=1662455279211&MRB=0; SUID=A; SRCHUSR=DOB=20220518&T=1662515981000&TPC=1662515981000; ZHCHATWEAKATTRACT=TRUE; ipv6=hit=1662519583426&t=4; SNRHOP=TS=637981128741596261&I=1; SRCHHPGUSR=SRCHLANG=zh-Hans&PV=12.1.0&BRW=XW&BRH=S&CW=1728&CH=356&SW=1728&SH=1117&DPR=2&UTC=480&HV=1662516061&WTS=63798112781&DM=0&BZA=0&SCW=1728&SCH=968&PRVCW=1728&PRVCH=968; MULTITAB=SQs=[{"q":"docker%20%E5%AE%98%E7%BD%91"%2C"c":1}]&TC=1
+Sec-Fetch-Dest: document
+Sec-Fetch-Mode: navigate
+Sec-Fetch-Site: none
+Sec-Fetch-User: ?1
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36
+sec-ch-ua: "Chromium";v="104", " Not A;Brand";v="99", "Google Chrome";v="104"
+sec-ch-ua-arch: "arm"
+sec-ch-ua-bitness: "64"
+sec-ch-ua-full-version: "104.0.5112.101"
+sec-ch-ua-full-version-list: "Chromium";v="104.0.5112.101", " Not A;Brand";v="99.0.0.0", "Google Chrome";v="104.0.5112.101"
+sec-ch-ua-mobile: ?0
+sec-ch-ua-model: ""
+sec-ch-ua-platform: "macOS"
+sec-ch-ua-platform-version: "12.1.0"
+
+`
+
+rsp,req,err = poc.HTTP(data,poc.https(true))
+
+die(err)
+nodes,err = xpath.LoadHTMLDocument(rsp)
+die(err)
+
+yakit.Output(xpath.InnerText(xpath.FindOne(nodes, `/html/body/div[1]/main/ol/li[1]/div/div[2]/div[1]/div[1]`)))
+yakit.Output(xpath.InnerText(xpath.FindOne(nodes, `/html/body/div[1]/main/ol/li[1]/div/div[2]/div[1]/div[3]`)))
+yakit.Output(xpath.InnerText(xpath.FindOne(nodes, `/html/body/div[1]/main/ol/li[1]/div/div[2]/div[2]/div[1]/div[1]`)))
+yakit.Output(xpath.InnerText(xpath.FindOne(nodes, `/html/body/div[1]/main/ol/li[1]/div/div[2]/div[2]/div[1]/div[2]`)))
+
+

@@ -1,0 +1,87 @@
+yakit.AutoInitYakit()
+log.info("info")
+
+systeminfo = cli.String("systeminfo")
+
+if str.MatchAllOfSubString(systeminfo, `Microsoft(R)`) {
+    os_detail = re.Find(systeminfo, `Microsoft\(R\) Windows\(R\) Server \d*`)
+    os_version =  re.Find(os_detail, `\d+`)
+    version = true
+}else {
+    if str.MatchAllOfSubString(systeminfo, `Microsoft Windows XP`) {
+        os_version = "XP"
+        version = true
+    }elif str.MatchAllOfSubString(systeminfo, `Microsoft Windows Vista`) {
+        os_version = "Vista"
+        version = true
+    }elif str.MatchAllOfSubString(systeminfo, `Microsoft Windows RT`) {
+        os_version = "RT"
+        version = true
+    }elif str.MatchAllOfSubString(systeminfo, `Microsoft Windows ME`) {
+        os_version = "ME"
+        version = true
+    }elif str.MatchAllOfSubString(systeminfo, `Microsoft Windows NT`) {
+        os_version = "NT"
+        version = true
+    }elif str.MatchAllOfRegexp(systeminfo, `Microsoft [\w\s]* \d+`) {
+        os_detail = re.Find(systeminfo, `Microsoft [\w\s]* \d+`)
+        os_version =  re.Find(os_detail, `\d+`)
+        version = true
+    }else {
+        version = false
+    }
+}
+
+yakit.Info("当前操作系统版本为：Windows %v", os_version)
+systeminfo = codec.EscapePathUrl(systeminfo)
+
+rsp, err := http.Post(
+    "http://payloads.net/Windows_patch/",
+    http.body("content=" + systeminfo + "&submit=%E6%9F%A5%E8%AF%A2"),
+    http.header("Content-Type", "application/x-www-form-urlencoded"),
+    http.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.87 Safari/537.36"),
+    http.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"),
+    )
+if err!= nil {
+    yakit.Error(string(err))
+    return
+}
+rspraw, dumperr = http.dump(rsp)
+header, body = str.SplitHTTPHeadersAndBodyFromPacket(rspraw)
+
+report, reporterr = xpath.LoadHTMLDocument(body)
+if reporterr != nil {
+    yakit.Error(string(reporterr))
+    return
+}
+nodes = xpath.Find(report, `//*[@id="result"]/table/tbody/tr`)
+
+yakit.EnableTable("提权补丁对比插件", ["微软编号","补丁编号","描述","影响系统","详情链接"])
+outputData = def(ms_id,kb_id,des,inf_os,href){
+    data = make(map[string]var)
+    data["微软编号"] = ms_id
+    data["补丁编号"] = kb_id
+    data["描述"] = des
+    data["影响系统"] = inf_os
+    data["详情链接"] = href
+    yakit.Output(yakit.TableData("提权补丁对比插件", data))
+}
+
+yakit.Info("正在对比 Windows %v 的补丁信息", os_version)
+for i:=1; i<len(nodes); i++ {
+    x = str.f(`//*[@id="result"]/table/tbody/tr[%v]/td[2]/a`, i+1)
+    a = xpath.FindOne(report, x)
+    href = xpath.SelectAttr(a, "href")
+    node = xpath.InnerText(nodes[i])
+    details = str.Split(node,"\n     ")
+    if version == true {
+        if str.MatchAllOfSubString(details[4], os_version) {
+            outputData(details[1], details[2], details[3], details[4], href)
+            continue
+        }
+    }else {
+        outputData(details[1], details[2], details[3], details[4], href)
+    }  
+}
+
+

@@ -1,0 +1,23 @@
+hijackSaveHTTPFlow = func(flow /* *yakit.HTTPFlow */, modify /* func(modified *yakit.HTTPFlow) */, drop /* func() */) {
+    raw = ""
+    try {
+        raw = flow.GetRequest()
+    } catch e {
+        raw = codec.StrconvUnquote(flow.Request)~
+    }
+
+
+    headers := poc.GetHTTPPacketHeadersFull(raw)
+    for headerName in ["cookie", "Cookie"] {
+        if headerName in headers {
+            value := str.Join(headers[headerName], "; ")
+            raw = poc.DeleteHTTPPacketHeader(raw, headerName)
+            newPacket = poc.ReplaceHTTPPacketHeader(raw, headerName, value)
+            flow.Request = codec.StrconvQuote(newPacket)
+            modify(flow)
+            return
+        } else {
+            continue
+        }
+    }
+}

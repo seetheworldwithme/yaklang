@@ -1,0 +1,44 @@
+yakit.AutoInitYakit()
+log.setLevel("info")
+targets = cli.String("targets")
+//画表函数
+yakit.Info("域名、IP提取任务已启动,自动过滤不符合规范的结果")
+yakit.EnableTable("域名、IP提取结果", ["hosts"]) 
+outputTable = func(hosts) {
+    data = make(map[string]var)
+    data["hosts"] = hosts
+    yakit.TableData("域名、IP提取结果", data)
+}
+//slice去重函数
+func RemoveRepByMap(slc){
+    result := []string{}
+    tempMap := map[string]byte{}  
+    for _, e := range slc{
+        l := len(tempMap)
+        tempMap[e] = 0
+        if len(tempMap) != l{  
+            result = append(result, e)
+        }
+    }
+    return result
+}
+//去除后缀：.js .css .jpg .png .jsonld .ico
+hosts = make([]string)
+ip = re.ExtractIP(targets)
+for n,m := range ip{
+    if len(m)!=0 && !(str.EndsWith(m,".js")|| str.EndsWith(m,".css")||str.EndsWith(m,".jpg")||str.EndsWith(m,".png")||str.EndsWith(m,".jsonld")||str.EndsWith(m,".ico")){
+        hosts = append(hosts,m)
+    }
+}
+domain = str.ExtractDomain(targets)
+for i,v := range domain{
+    if len(v)!=0 && !(str.EndsWith(v,".js")|| str.EndsWith(v,".css")||str.EndsWith(v,".jpg")||str.EndsWith(v,".png")||str.EndsWith(v,".jsonld")||str.EndsWith(v,".ico")){
+        hosts = append(hosts,v)
+    }
+}
+hosts=RemoveRepByMap(hosts)
+
+for index, element := range hosts{
+    outputTable(element)
+}
+yakit.Info("IP、域名提取已完成")

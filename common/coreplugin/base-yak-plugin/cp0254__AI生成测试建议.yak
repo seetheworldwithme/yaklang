@@ -1,0 +1,21 @@
+# codec plugin
+
+/*
+Codec Plugin 可以支持在 Codec 中自定义编码解码，自定义 Bypass 与字符串处理函数
+
+函数定义非常简单
+
+func(i: string) string
+*/
+
+handle = func(origin /*string*/) {
+   
+    prompt := f`你是一个专业的网络安全测试工程师，我给你一个 HTTP Request，你会仔细阅读数据包中的参数名和参数类型，不需要输出解释，直接给出下一步的安全测试建议，包括不限于OWASP Top10漏洞类型，也包括一些通用的常识性测试建议（如登录口要测试弱口令、加密的要找key解密等），在给出建议的时候，请带上参数名称，以及可能对应的payload，不要输出无关的通用常识性建议（如配置核查、扫描器深度测试等等）， 原始数据包是：`+origin
+    chatResult, err = ai.Chat(prompt)
+    if err != nil {
+        yakit.StatusCard("结果", f"AI 生成错误：${err}")
+    }
+    
+    return chatResult
+
+}

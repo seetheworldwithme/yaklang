@@ -1,0 +1,34 @@
+yakit.AutoInitYakit()
+
+targets = cli.Text("target", cli.setRequired(true), cli.setHelp("批量查询目标"))
+cli.check()
+
+func GetIPInfo(ip){
+    url = "https://opendata.baidu.com/api.php?query="+ip+"&co=&resource_id=6006&oe=utf8"
+    locations = []
+
+    rsp, _ = poc.Get(url)~
+    result = json.loads(string(rsp.GetBody()))
+    if result["status"] != "0"{
+        yakit.Info("查询IP归属地出错")
+    }else{
+        for k,v = range(result["data"]){
+            yakit.Info("ip: %s 归属地: %s",ip, v["location"])
+            locations.Append(v["location"])
+        }
+    }
+    return locations
+}
+
+yakit.EnableTable("IP归属地查询", ["IP", "归属地"])
+table = yakit.NewTable("IP","归属地")
+swg = sync.NewSizedWaitGroup(10)
+for target in str.ParseStringToLines(targets) {
+    target := target
+    swg.Add(1)
+    go func(target) {
+        defer swg.Done()
+        yakit.Output(yakit.TableData("IP归属地查询", {"IP": target, "归属地": GetIPInfo(target)}))
+    }(target)
+}
+swg.Wait()

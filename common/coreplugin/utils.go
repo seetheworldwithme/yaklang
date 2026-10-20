@@ -46,6 +46,12 @@ func GetCorePluginDataWithHook(name string) []byte {
 func GetCorePluginData(name string) []byte {
 	codeBytes, err := basePluginFS.ReadFile(fmt.Sprintf("base-yak-plugin/%v.yak", name))
 	if err != nil {
+		// 社区内置插件文件名经过净化(cpNNNN__*.yak)，按插件名查不到时走映射表兜底
+		if file, ok := communityBuildInPluginFileByName[name]; ok {
+			codeBytes, err = basePluginFS.ReadFile("base-yak-plugin/" + file)
+		}
+	}
+	if err != nil {
 		log.Errorf("%v不是core plugin", name)
 		return nil
 	}

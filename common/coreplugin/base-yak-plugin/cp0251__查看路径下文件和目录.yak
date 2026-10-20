@@ -1,0 +1,44 @@
+yakit.AutoInitYakit()
+
+# Input your code!
+path = cli.String("pathname", cli.setVerboseName("文件路径"), cli.setDefault("/tmp"), cli.setRequired(true))
+removePrefix = cli.String("prefix", cli.setVerboseName("删除前缀"), cli.setDefault("/tmp"), cli.setRequired(false))
+removePrefix = str.TrimSpace(removePrefix)
+repalceSlash = cli.Bool("replaceSlash", cli.setVerboseName("Windows路径处理 \\ -> / "), cli.setRequired(true))
+autoRemovePrefix = cli.Bool("autoRemovePrefix", cli.setVerboseName("自动删除前缀"), cli.setRequired(true))
+cli.check()
+
+if autoRemovePrefix {
+    removePrefix = path
+}
+
+if !file.IsExisted(path) {
+    yakit.StatusCard("ERROR", f`${path} not existed`)
+    return
+}
+
+pathText = bufio.NewBuffer()
+filesText = bufio.NewBuffer()
+
+handle = (name) => {
+    if removePrefix != "" {
+        name, _ = str.CutPrefix(name, removePrefix)
+    }
+    return str.ReplaceAll(name, "\\", "/")
+}
+
+filesys.Recursive(path, filesys.onDirStat((pathname, info) => {
+    pathText.WriteString(handle(pathname) + "\n")
+}), filesys.onFileStat((filename, info) => {
+    filesText.WriteString(handle(filename) + "\n")
+}))
+
+if pathText.Len() > 0 {
+    yakit.EnableText("目录路径")
+    yakit.TextTabData("目录路径", pathText.String())
+}
+
+if filesText.Len() > 0 {
+    yakit.EnableText("文件路径")
+    yakit.TextTabData("文件路径", filesText.String())
+}

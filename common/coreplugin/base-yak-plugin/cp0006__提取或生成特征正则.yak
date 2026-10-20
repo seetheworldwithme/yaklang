@@ -1,0 +1,22 @@
+
+status = i => {
+    yakit.StatusCard("状态", f"${i}")
+}
+
+handle = content => {
+    status("正在生成数据")
+    try {
+        data = (ai.FunctionCall(f`我正在从一个数据中提取正则表达式，这个数据为：
+
+${string(content)}
+
+注意，如果我提供的内容是一个完整数据包，请你尽量提取特征，而不要全部生成，忽略掉不重要头的特征，如果是普通数据，可以按你的理解和编程的习惯来生成正则`, {
+        "regexp": "Golang 风格的正则表达式",
+        })~.regexp)
+        return data
+    } catch e {
+        status(e)
+    } finally {
+        status("生成完成")
+    }
+}

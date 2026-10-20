@@ -1,0 +1,45 @@
+headers = <<<HEAD
+X-Forwarded-For
+X-Forwarded
+Forwarded-For
+Forwarded
+X-Requested-With
+X-Forwarded-Proto
+X-Forwarded-Host
+X-remote-IP
+X-remote-addr
+True-Client-IP
+X-Client-IP
+Client-IP
+X-Real-IP
+Ali-CDN-Real-IP
+Cdn-Src-Ip
+Cdn-Real-Ip
+CF-Connecting-IP
+X-Cluster-Client-IP
+WL-Proxy-Client-IP
+Proxy-Client-IP
+Fastly-Client-Ip
+True-Client-Ip
+X-Originating-IP
+X-Host
+X-Original-Host
+X-Original-IP
+Via
+X-Via
+X-Custom-IP-Authorization
+
+HEAD
+
+
+handle = func(req) {
+    target = x`{{ri(1,255)}}.{{ri(0,255)}}.{{ri(0,255)}}.{{ri(0,255)}}`[0]
+    for i in headers.Split("\n") {
+        i = str.TrimSpace(i)
+        if i == "" {
+            continue
+        }
+        req = poc.ReplaceHTTPPacketHeader(req, i, target)
+    }
+    return string(req)
+}

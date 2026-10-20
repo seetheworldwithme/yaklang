@@ -1,0 +1,37 @@
+# codec plugin
+
+/*
+Codec Plugin 可以支持在 Codec 中自定义编码解码，自定义 Bypass 与字符串处理函数
+
+函数定义非常简单
+
+func(i: string) string
+*/
+
+handle = func(origin /*string*/) {
+    _, v = poc.Split(origin)
+    if len(v) < 0 {
+        return string(origin)
+    }
+
+    // 尝试json和xml
+    params = json.loads(v)
+    bodyTyp = ""
+    if len(params) > 0{
+        bodyTyp = "json"
+    } else {
+        params = xml.loads(v)
+        bodyTyp = "xml"
+    }
+    // 替换body
+    if len(params) > 0 {
+        newBody = v
+        if bodyTyp == "json" {
+            newBody = json.dumps(params, json.withIndent("  "))
+        } else if bodyTyp == "xml" {
+            newBody = xml.dumps(params)
+        }
+        origin = poc.ReplaceBody(origin, newBody,false)
+    }
+    return string(origin)
+}

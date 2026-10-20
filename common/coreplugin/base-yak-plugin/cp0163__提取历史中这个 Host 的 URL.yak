@@ -1,0 +1,55 @@
+yakit.AutoInitYakit()
+
+status = (i) => {
+    yakit.StatusCard("状态", i)
+}
+
+handle = func(origin /* string */) {
+    if str.ParseStringToPorts(origin).Len() <= 0 {
+        status("输入不合法：%v" % origin)
+        return ""
+    }
+    
+
+    buf = bufio.NewBuffer()
+
+    filter = str.NewFilter()
+    count := 0
+    go func {
+        for {
+            if count > 0 {
+                yakit.StatusCard("进度", "已检查%v条流量" % count)
+            }
+            println("checking process")
+            time.Sleep(1)
+        }
+        
+    }
+
+    for i in str.ParseStringToPorts(origin) {
+        for result in db.QueryHTTPFlowsByID(i) {
+            host := str.ExtractHost(result.Url)
+            for kw in ["https://" + host, "http://" + host] {
+                for flow in yakit.QueryHTTPFlowsByKeyword(kw) {
+                    if !str.HasPrefix(flow.Url, kw) {
+                        continue
+                    }
+                    
+                    if filter.Exist(flow.Url) {
+                        continue
+                    }
+                    
+                    count++
+                    filter.Insert(flow.Url)
+                    buf.Write(flow.Url + "\n")
+                }
+                
+            }
+            
+        }
+        
+    }
+    
+
+    return buf.String()
+}

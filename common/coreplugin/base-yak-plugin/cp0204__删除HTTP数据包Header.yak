@@ -1,0 +1,70 @@
+yakit.AutoInitYakit()
+
+
+requestMode = str.Join(
+    cli.StringSlice(
+        "mode", 
+        cli.setVerboseName("生效位置"), 
+        cli.setRequired(true), 
+        cli.setDefault("req|rsp"), 
+        cli.setSelectOption("请求", "req"), 
+        cli.setSelectOption("响应", "rsp"), 
+        cli.setSelectOption("请求响应都生效", "req|rsp"), 
+    ), 
+    "", 
+)
+header = cli.String("header", cli.setVerboseName("删除的 Header Key"), cli.setRequired(true), cli.setHelp("逗号(',')或者竖线('|')分隔"))
+cli.check()
+
+headers = []
+header.Split(",").Map(i => {
+    i.Split("|").Map(j => {
+        headers.Push(j)
+    })
+})
+
+hijackHTTPRequest = func(isHttps, url, req, forward /* func(modifiedRequest []byte) */, drop /* func() */) {
+    if headers.Len() <= 0 {
+        return
+    }
+    
+
+    if requestMode.Contains("req") {
+        done := false
+        for header in headers {
+            req = poc.DeleteHTTPPacketHeader(req, header)
+            done = true
+        }
+        
+        if done {
+            forward(req)
+            yakit.Info("已移除: %v 的 request header: %v", url, header)
+            db.SaveHTTPFlowFromRawWithOption(url, req, nil)~
+        }
+        
+    }
+    
+}
+
+hijackHTTPResponse = func(isHttps, url, rsp, forward, drop) {
+    if headers.Len() <= 0 {
+        return
+    }
+    
+
+    if requestMode.Contains("rsp") {
+        done := false
+        for header in headers {
+            rsp = poc.DeleteHTTPPacketHeader(rsp, header)
+            done = true
+        }
+        
+        if done {
+            forward(rsp)
+            yakit.Info("已移除: %v 的 response header: %v", url, header)
+            db.SaveHTTPFlowFromRawWithOption(url, nil, rsp)~
+        }
+        
+    }
+    
+}

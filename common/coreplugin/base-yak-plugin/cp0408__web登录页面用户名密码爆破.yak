@@ -1,0 +1,208 @@
+yakit.AutoInitYakit()
+
+targetUrl = cli.String("url", cli.setHelp("需要进行模拟点击爆破的目标url"),cli.setVerboseName("目标url"),cli.setRequired(true))
+
+usernameList = cli.String("usernames", cli.setHelp("爆破时填写的用户名字符串列表，用英文逗号隔开"),cli.setVerboseName("用户名列表"), cli.setCliGroup("用户名/密码列表"))
+passwordList = cli.String("passwords", cli.setHelp("爆破时填写的密码字符串列表，用英文逗号隔开"),cli.setVerboseName("密码列表"), cli.setCliGroup("用户名/密码列表"))
+usernameFile = cli.FileNames("usernameFile", cli.setVerboseName("用户名文件"), cli.setCliGroup("用户名/密码列表"))
+passwordFile = cli.FileNames("passwordFile", cli.setVerboseName("密码文件"), cli.setCliGroup("用户名/密码列表"))
+
+captchaUrl = cli.String("captchaUrl", 
+    cli.setHelp("接口默认为使用ddddocr的ocr_api_server项目（https://github.com/sml2h3/ocr_api_server）\n操作类型ocr，数据类型b64，返回类型json\n新的dddd ocr fast api已支持（https://github.com/sml2h3/ddddocr-fastapi）作者测试时2024年7月30日版本新的api存在bug 需要对源码进行修改"),
+    cli.setVerboseName("验证码识别url"),
+    cli.setCliGroup("基础设置"),
+)
+wsAddress = cli.String("wsAddress", cli.setHelp("chrome headless运行时的ws地址"),cli.setVerboseName("浏览器ws地址"),cli.setCliGroup("基础设置"))
+exePath = cli.String("exePath", cli.setHelp("chrome浏览器可执行文件的路径（强烈建议填写本选项，本选项不填将会默认下载浏览器）"),cli.setVerboseName("浏览器路径"),cli.setCliGroup("基础设置"))
+
+proxy = cli.String("proxy", cli.setHelp("浏览器代理地址"),cli.setVerboseName("代理地址"),cli.setCliGroup("代理设置"))
+proxyUsername = cli.String("proxyUsername", cli.setHelp("代理用户名"),cli.setVerboseName("用户名"),cli.setCliGroup("代理设置"))
+proxyPassword = cli.String("proxyPassword", cli.setHelp("代理密码"),cli.setVerboseName("密码"),cli.setCliGroup("代理设置"))
+
+usernameSelector = cli.String("usernameSelector", cli.setHelp("输入用户名的element对应selector"),cli.setVerboseName("用户名"),cli.setCliGroup("自定义selector"))
+passwordSelector = cli.String("passwordSelector", cli.setHelp("输入密码的element对应selector"),cli.setVerboseName("密码"),cli.setCliGroup("自定义selector"))
+captchaSelector = cli.String("captchaSelector", cli.setHelp("输入验证码的element对应selector"),cli.setVerboseName("验证码"),cli.setCliGroup("自定义selector"))
+captchaImgSelector = cli.String("captchaImgSelector", cli.setHelp("验证码图片的element对应selector"),cli.setVerboseName("验证码图片"),cli.setCliGroup("自定义selector"))
+buttonSelector = cli.String("buttonSelector", cli.setHelp("提交时点击按钮的element对应selector"),cli.setVerboseName("提交按钮"),cli.setCliGroup("自定义selector"))
+
+loginDetect = cli.StringSlice("loginDetectMode", cli.setMultipleSelect(false),cli.setSelectOption("url检测", "urlChange"),cli.setSelectOption("html检测", "htmlChange"),cli.setSelectOption("综合检测", "defaultChange"),cli.setHelp("检测是否登陆成功采取的模式"),cli.setVerboseName("登陆检测模式"),cli.setCliGroup("登陆成功检测"),cli.setDefault("defaultChange"))
+degree = cli.Float("degree", cli.setDefault(0.600000),cli.setHelp("使用html变化判断登陆是否成功时使用的html相似程度阈值，与原页面相似度低于该阈值认为登陆成功"),cli.setVerboseName("相似阈值"),cli.setCliGroup("登陆成功检测"))
+
+captchaMode = cli.String("captchaMode", cli.setHelp("正常情况下无需填写"),cli.setVerboseName("验证码识别模式"),cli.setCliGroup("其他"))
+captchaType = cli.StringSlice("captchaType", 
+    cli.setMultipleSelect(false), 
+    cli.setSelectOption("无", "0"),
+    cli.setSelectOption("旧ddddocr(url以/ocr/b64/json结尾)", "2"), 
+    cli.setSelectOption("新ddddocr(url以/ocr结尾)", "3"), 
+    cli.setSelectOption("其他（正常不要选这个）", "1"),
+    cli.setVerboseName("验证码识别工具"),
+    cli.setCliGroup("基础设置"), 
+    cli.setDefault("0"),
+)
+extraWaitLoadTime = cli.Int("extraWaitLoadTime", cli.setDefault(500),cli.setHelp("额外等待的页面加载时间 单位毫秒"),cli.setVerboseName("额外等待时间"),cli.setCliGroup("其他"))
+leakless = cli.StringSlice("leakless", cli.setMultipleSelect(false),cli.setSelectOption("默认", "default"),cli.setSelectOption("开启", "on"),cli.setSelectOption("关闭", "off"),cli.setHelp("浏览器自动进程关闭进行在windows下会报病毒 默认在windows下会关闭\n当关闭时 如果强制关闭爬虫进程时chrome.exe会存在于后台 浏览器进程后台过多时请手动进行关闭"),cli.setVerboseName("进程关闭浏览器"),cli.setCliGroup("其他"),cli.setDefault("default"))
+cli.check()
+
+leaklessMap  = {
+    "default": simulator.leaklessDefault,
+    "on": simulator.leaklessOn,
+    "off": simulator.leaklessOff,
+}
+
+userlist = make([]string, 0)
+if len(usernameFile) > 0 {
+    for _, userdict := range usernameFile {
+        userFileRaw, err = io.ReadFile(userdict)
+        if err != nil{
+            yakit.Error("加载用户名文件%v失败：%v", userdict, err)
+            return
+        }
+        if len(userFileRaw) <= 0 {
+            yakit.Error("加载用户名文件失败：%v", userdict)
+            return
+        }
+        lines = str.ParseStringToLines(string(userFileRaw))
+        userlist = append(userlist, lines...)
+    }
+} else {
+    userlist = usernameList.Split(",")
+}
+
+passlist = make([]string, 0)
+if len(passwordFile) > 0 {
+    for _, passdict := range passwordFile {
+        passFileRaw,err = io.ReadFile(passdict)
+        if err != nil{
+            yakit.Error("加载密码文件%v失败：%v", passdict, err)
+            return
+        }
+        if len(passFileRaw) <= 0 {
+            yakit.Error("加载密码文件失败：%v", passdict)
+            return
+        }
+        lines = str.ParseStringToLines(string(passFileRaw))
+        passlist = append(passlist, lines...)
+    }
+} else {
+    passlist = passwordList.Split(",")
+}
+
+if len(userlist) == 0 {
+    yakit.Error("待爆破用户名列表为空")
+    return
+}
+
+if len(passlist) == 0 {
+    yakit.Error("待爆破密码列表为空")
+    return
+}
+
+userOpt = simulator.usernameList(userlist)
+passOpt = simulator.passwordList(passlist)
+
+opts = [
+    userOpt,
+    passOpt,
+    simulator.sourceType("plugin"),
+    simulator.fromPlugin("simulator_bruteforce"),
+    simulator.saveToDB(true),
+]
+
+if captchaUrl != ""{
+    captchaUrlOpt = simulator.captchaUrl(captchaUrl)
+    opts = append(opts, captchaUrlOpt)
+}
+
+if wsAddress != ""{
+    wsAddressOpt = simulator.wsAddress(wsAddress)
+    opts = append(opts, wsAddressOpt)
+}
+
+if exePath != "" {
+    exePathOpt = simulator.exePath(exePath)
+    opts = append(opts, exePathOpt)
+}
+
+if proxy != ""{
+    var proxyOpt
+    if proxyUsername != ""{
+        proxyOpt = simulator.proxy(proxy, proxyUsername, proxyPassword)
+    } else {
+        proxyOpt = simulator.proxy(proxy)
+    }
+    opts = append(opts, proxyOpt)
+}
+
+if usernameSelector != ""{
+    usernameSelectorOpt = simulator.usernameSelector(usernameSelector)
+    opts = append(opts, usernameSelectorOpt)
+}
+
+if passwordSelector != ""{
+    passwordSelectorOpt = simulator.passwordSelector(passwordSelector)
+    opts = append(opts, passwordSelectorOpt)
+}
+
+if captchaSelector != ""{
+    captchaSelectorOpt = simulator.captchaInputSelector(captchaSelector)
+    opts = append(opts, captchaSelectorOpt)
+}
+
+if captchaImgSelector != ""{
+    captchaImgSelectorOpt = simulator.captchaImgSelector(captchaImgSelector)
+    opts = append(opts, captchaImgSelectorOpt)
+}
+
+if buttonSelector != "" {
+    buttonSelectorOpt = simulator.submitButtonSelector(buttonSelector)
+    opts = append(opts, buttonSelectorOpt)
+}
+
+loginDetectStr = loginDetect[0]
+mode = simulator.defaultChangeMode
+if loginDetectStr == "defaultChangeMode" {
+    mode = simulator.defaultChangeMode
+} else if loginDetectStr == "urlChangeMode" {
+    mode = simulator.urlChangeMode
+} else if loginDetectStr == "htmlChangeMode" {
+    mode = simulator.htmlChangeMode
+}
+
+loginDetectOpt = simulator.loginDetectMode(mode, degree)
+opts = append(opts, loginDetectOpt)
+
+captchaTypeStr = captchaType[0]
+captchaMap = {"1":1,"2":2,"3":3}
+if captchaMap[captchaTypeStr] {
+    captchaTypeOpt = simulator.captchaType(captchaMap[captchaTypeStr])
+    opts = append(opts, captchaTypeOpt)
+}
+
+if captchaMode != "" {
+    captchaModeOpt = simulator.captchaMode(captchaMode)
+    opts = append(opts, captchaModeOpt)
+}
+
+if extraWaitLoadTime != 0 {
+    waitTimeOpt = simulator.extraWaitLoadTime(extraWaitLoadTime)
+    opts = append(opts, waitTimeOpt)
+}
+
+leaklessStr = leakless[0]
+if leaklessStr != "" {
+    leaklessObj = leaklessStr in leaklessMap ? leaklessMap[leaklessStr] : simulator.leaklessDefault
+    opts = append(opts, simulator.leaklessStatus(leaklessObj))
+}
+
+ch, err = simulator.HttpBruteForce(targetUrl, opts...)
+
+if err != nil{
+    yakit.Info("模拟点击爆破错误：%s", err)
+    return
+}
+
+for item := range ch {
+    yakit.Info(`[bruteforce] try username & password: %s %s ...`, item.Username(), item.Password())
+    yakit.Info(`[bruteforce] login success %v!`, item.Status())
+    yakit.Info(`[bruteforce] login info: %s`, item.Info())
+}

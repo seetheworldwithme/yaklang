@@ -1,0 +1,25 @@
+headers = <<<HEAD
+X-Forwarded-For
+X-Forwarded-Host
+X-Real-IP
+X-Original-Host
+X-Original-IP
+Via
+X-Via
+CF-Connecting-IP
+X-Client-IP
+X-Cluster-Client-IP
+
+HEAD
+target = "127.0.0.1"
+
+handle = func(req) {
+    for i in headers.Split("\n") {
+        i = str.TrimSpace(i)
+        if i == "" {
+            continue
+        }
+        req = poc.ReplaceHTTPPacketHeader(req, i, target)
+    }
+    return string(req)
+}
